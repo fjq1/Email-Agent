@@ -19,5 +19,5 @@ urlpatterns = [
     path("health/ready/", views.readiness, name="readiness"),
     path("probes/", views.start_probe, name="start_probe"),
     path("probes/<uuid:run_id>/review/", views.review_probe, name="review_probe"),
-    path("probes/<uuid:run_id>/retry/", views.retry_run, name="retry_run"),
+    path("probes/<uuid:run_id>/resume/", views.resume_run, name="resume_run"),
 ]

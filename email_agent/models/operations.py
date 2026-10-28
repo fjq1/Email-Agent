@@ -1,10 +1,9 @@
-"""运行、幂等操作和可靠投递所需的基础模型。"""
+"""同步运行、幂等操作和审计所需的基础模型。"""
 
 import uuid
 
 from django.conf import settings
 from django.db import models
-from django.utils import timezone
 
 
 class TimestampedModel(models.Model):
@@ -81,21 +80,4 @@ class AuditEvent(models.Model):
     class Meta:
         ordering = ["created_at"]
         verbose_name = "审计事件"
-        verbose_name_plural = verbose_name
-
-
-class OutboxEvent(TimestampedModel):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    run = models.ForeignKey(AgentRun, on_delete=models.PROTECT, related_name="outbox_events")
-    event_type = models.CharField("事件类型", max_length=40, default="advance_probe")
-    available_at = models.DateTimeField("最早投递时间", default=timezone.now, db_index=True)
-    published_at = models.DateTimeField("队列已接收时间", null=True, blank=True, db_index=True)
-    claim_token = models.UUIDField("领取标识", null=True, blank=True)
-    lease_until = models.DateTimeField("领取到期时间", null=True, blank=True)
-    attempts = models.PositiveIntegerField("投递尝试次数", default=0)
-    last_error_code = models.CharField("最近错误类型", max_length=120, blank=True)
-
-    class Meta:
-        ordering = ["created_at"]
-        verbose_name = "待投递事件"
         verbose_name_plural = verbose_name

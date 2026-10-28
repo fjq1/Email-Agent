@@ -1,5 +1,6 @@
 """无模型费用、无外部写入的诊断图，验证暂停和恢复基础设施。"""
 
+import logging
 from contextlib import contextmanager
 from typing import TypedDict
 
@@ -11,9 +12,15 @@ from email_agent.models import AgentRun, OperationRecord
 from email_agent.services.audit import record_event
 from email_agent.workflows.checkpoints import open_checkpointer
 
+logger = logging.getLogger(__name__)
+
 
 class RunBusyError(Exception):
     """同一工作流正被其他进程处理。"""
+
+
+class RunFailedError(Exception):
+    """运行已保存失败状态，调用方可显示结果并提供手动重试。"""
 
 
 class ProbeState(TypedDict, total=False):
@@ -89,6 +96,8 @@ def advance_run(run_id):
     run = AgentRun.objects.get(pk=run_id)
     if run.kind != "infrastructure_probe":
         raise ValueError("该执行器只接受基础设施诊断流程。")
+    if connection.in_atomic_block:
+        raise ValueError("请在数据库事务提交后执行工作流。")
     with run_lock(run.id):
         run.refresh_from_db()
         if run.status in [AgentRun.Status.SUCCEEDED, AgentRun.Status.REJECTED]:
@@ -136,5 +145,6 @@ def advance_run(run_id):
                 f"failed:{run.id}:{run.updated_at.isoformat()}",
                 error_code=type(exc).__name__,
             )
-            raise
+            logger.warning("诊断处理失败，错误类型：%s", type(exc).__name__)
+            raise RunFailedError(type(exc).__name__) from None
     return run.status

@@ -10,7 +10,7 @@ from django.views.decorators.http import require_GET, require_POST
 from email_agent.intelligence.models import provider_statuses
 from email_agent.models import AgentRun
 from email_agent.services.health import infrastructure_status
-from email_agent.services.runs import create_probe, decide_probe, retry_probe
+from email_agent.services.runs import create_probe, decide_probe, resume_probe
 
 
 @require_GET
@@ -44,8 +44,8 @@ def dashboard(request):
 @login_required
 @require_POST
 def start_probe(request):
-    create_probe(request.user)
-    messages.success(request, "诊断流程已保存，后台将执行并暂停等待审核。")
+    run = create_probe(request.user)
+    notify_result(request, run)
     return redirect("dashboard")
 
 
@@ -53,21 +53,37 @@ def start_probe(request):
 @require_POST
 def review_probe(request, run_id):
     try:
-        decide_probe(run_id, request.user, request.POST.get("decision", ""))
+        run = decide_probe(run_id, request.user, request.POST.get("decision", ""))
     except AgentRun.DoesNotExist:
         raise Http404 from None
     except ValidationError as exc:
         messages.error(request, "；".join(exc.messages))
+    else:
+        notify_result(request, run)
     return redirect("dashboard")
 
 
 @login_required
 @require_POST
-def retry_run(request, run_id):
+def resume_run(request, run_id):
     try:
-        retry_probe(run_id, request.user)
+        run = resume_probe(run_id, request.user)
     except AgentRun.DoesNotExist:
         raise Http404 from None
     except ValidationError as exc:
         messages.error(request, "；".join(exc.messages))
+    else:
+        notify_result(request, run)
     return redirect("dashboard")
+
+
+def notify_result(request, run):
+    """处理结果在当前请求中产生，返回页面时直接告知用户。"""
+    if run.status == AgentRun.Status.FAILED:
+        messages.error(request, f"诊断处理失败（{run.last_error_code}），可以手动重试。")
+    elif run.status == AgentRun.Status.WAITING_REVIEW:
+        messages.success(request, "诊断已准备完成，等待你确认或拒绝。")
+    elif run.status == AgentRun.Status.REJECTED:
+        messages.success(request, "已拒绝本次诊断。")
+    elif run.status == AgentRun.Status.SUCCEEDED:
+        messages.success(request, "诊断处理完成，结果已保存。")

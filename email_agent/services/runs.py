@@ -1,93 +1,66 @@
-"""诊断流程的启动、审核和恢复入口；所有修改都检查所属用户。"""
+"""同步执行入口：先提交业务记录，再启动或恢复工作流。"""
 
-import logging
 import uuid
-from datetime import timedelta
 
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.utils import timezone
 
-from email_agent.models import AgentRun, OutboxEvent
+from email_agent.models import AgentRun
 from email_agent.services.audit import record_event
+from email_agent.workflows.probe import RunBusyError, RunFailedError, advance_run
 
-logger = logging.getLogger(__name__)
 
-
-def wake_dispatcher():
-    """队列离线时保留 Outbox，由定时调度或管理命令继续投递。"""
-    from email_agent.tasks import dispatch_outbox
-
+def execute_run(run):
+    """Web 和命令行共用此入口，调用结束后即可获取当前处理结果。"""
     try:
-        dispatch_outbox.apply_async(retry=False)
-    except Exception as exc:
-        logger.warning("队列暂不可用，事件已保存在数据库：%s", type(exc).__name__)
+        advance_run(run.id)
+    except RunBusyError:
+        raise ValidationError("该流程正在处理，请稍后刷新。") from None
+    except RunFailedError:
+        # 执行器已保存失败状态，界面据此提供手动重试。
+        pass
+    run.refresh_from_db()
+    return run
 
 
-def schedule_run(run):
-    event = OutboxEvent.objects.create(run=run)
-    transaction.on_commit(wake_dispatcher)
-    return event
-
-
-@transaction.atomic
 def create_probe(owner):
-    run = AgentRun.objects.create(owner=owner)
-    record_event(run, "run_created", f"created:{run.id}", actor_id=owner.pk)
-    schedule_run(run)
-    return run
-
-
-@transaction.atomic
-def decide_probe(run_id, owner, decision):
-    run = AgentRun.objects.select_for_update().get(pk=run_id, owner=owner)
-    if decision not in AgentRun.Decision.values:
-        raise ValidationError("审核决定必须是确认或拒绝。")
-    if run.review_decision:
-        if run.review_decision == decision:
-            return run
-        raise ValidationError("该流程已有审核决定，请新建诊断流程。")
-    if run.status != AgentRun.Status.WAITING_REVIEW:
-        raise ValidationError("该流程目前不处于等待审核状态。")
-    run.review_decision = decision
-    run.status = AgentRun.Status.PENDING
-    run.save(update_fields=["review_decision", "status", "updated_at"])
-    record_event(run, "review_decided", f"review:{run.id}", actor_id=owner.pk, decision=decision)
-    schedule_run(run)
-    return run
-
-
-@transaction.atomic
-def retry_probe(run_id, owner):
-    run = AgentRun.objects.select_for_update().get(pk=run_id, owner=owner)
-    if run.status != AgentRun.Status.FAILED:
-        raise ValidationError("只有执行失败的流程可以手动重试。")
-    run.status = AgentRun.Status.PENDING
-    run.last_error_code = ""
-    run.save(update_fields=["status", "last_error_code", "updated_at"])
-    record_event(run, "retry_requested", f"retry:{uuid.uuid4()}", actor_id=owner.pk)
-    schedule_run(run)
-    return run
-
-
-def recover_stalled(limit=100):
-    """恢复中途退出的运行；等待审核的流程不会被自动确认。"""
-    recovered = 0
-    cutoff = timezone.now() - timedelta(seconds=settings.RUN_STALE_SECONDS)
+    # 图节点使用独立连接；必须在事务提交后执行，避免节点看不到新记录。
     with transaction.atomic():
-        runs = list(
-            AgentRun.objects.select_for_update(skip_locked=True)
-            .filter(
-                status__in=[AgentRun.Status.PENDING, AgentRun.Status.RUNNING],
-                updated_at__lt=cutoff,
+        run = AgentRun.objects.create(owner=owner)
+        record_event(run, "run_created", f"created:{run.id}", actor_id=owner.pk)
+    return execute_run(run)
+
+
+def decide_probe(run_id, owner, decision):
+    with transaction.atomic():
+        run = AgentRun.objects.select_for_update().get(pk=run_id, owner=owner)
+        if decision not in AgentRun.Decision.values:
+            raise ValidationError("审核决定必须是确认或拒绝。")
+        if run.review_decision:
+            if run.review_decision != decision:
+                raise ValidationError("该流程已有审核决定，请新建诊断流程。")
+        else:
+            if run.status != AgentRun.Status.WAITING_REVIEW:
+                raise ValidationError("该流程目前不处于等待审核状态。")
+            run.review_decision = decision
+            run.status = AgentRun.Status.PENDING
+            run.save(update_fields=["review_decision", "status", "updated_at"])
+            record_event(
+                run, "review_decided", f"review:{run.id}", actor_id=owner.pk, decision=decision
             )
-            .order_by("updated_at")[:limit]
-        )
-        for run in runs:
-            if not run.outbox_events.filter(published_at__isnull=True).exists():
-                schedule_run(run)
-            run.updated_at = timezone.now()
-            run.save(update_fields=["updated_at"])
-            recovered += 1
-    return recovered
+    # 相同审核请求可以再次恢复；执行器会复用已完成的结果。
+    return execute_run(run)
+
+
+def resume_probe(run_id, owner):
+    """手动恢复中断或失败的运行；未审核的运行仍保持等待审核。"""
+    run = AgentRun.objects.get(pk=run_id, owner=owner)
+    if run.status in [
+        AgentRun.Status.SUCCEEDED,
+        AgentRun.Status.REJECTED,
+        AgentRun.Status.WAITING_REVIEW,
+    ]:
+        return run
+    record_event(run, "resume_requested", f"resume:{uuid.uuid4()}", actor_id=owner.pk)
+    # 不预先改写运行状态，已有执行进程仍由数据库锁保护。
+    return execute_run(run)

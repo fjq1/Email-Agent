@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from email_agent.models import AgentRun, AuditEvent, OperationRecord, OutboxEvent
+from email_agent.models import AgentRun, AuditEvent, OperationRecord
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
@@ -31,8 +31,3 @@ class OperationRecordAdmin(ReadOnlyAdmin):
 @admin.register(AuditEvent)
 class AuditEventAdmin(ReadOnlyAdmin):
     list_display = ("event_type", "run", "created_at")
-
-
-@admin.register(OutboxEvent)
-class OutboxEventAdmin(ReadOnlyAdmin):
-    list_display = ("id", "run", "attempts", "published_at", "last_error_code")

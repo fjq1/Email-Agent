@@ -6,8 +6,8 @@
   <p>{% if provider.configured %}<span class="badge">已填写密钥，连接待验证</span>{% else %}等待填写 API Key{% endif %}{% if provider.default %} · 默认平台{% endif %}</p>
 </div>{% endfor %}</div>
 <section>
-  <h2>验证后台流程</h2>
-  <p>创建诊断后，后台会保存进度并暂停。你可以重启服务，再回来确认或拒绝。此诊断仅写入本地操作记录。</p>
+  <h2>验证处理流程</h2>
+  <p>创建诊断后，会直接完成准备并暂停等待审核。你可以重启服务，再回来确认或拒绝。此诊断仅写入本地操作记录。</p>
   <form method="post" action="{% url 'start_probe' %}">{% csrf_token %}<button>创建诊断流程</button></form>
 </section>
 <section><div class="row"><h2>我的最近运行</h2><a href="{% url 'dashboard' %}">刷新状态</a></div>
@@ -15,7 +15,7 @@
   {% for run in runs %}<tr><td><code>{{ run.id }}</code><p class="muted">{{ run.created_at|date:"Y-m-d H:i:s" }}</p></td>
   <td>{{ run.get_status_display }}{% if run.last_error_code %}<p class="muted">{{ run.last_error_code }}</p>{% endif %}</td>
   <td>{% if run.status == 'waiting_review' %}<form method="post" action="{% url 'review_probe' run.id %}">{% csrf_token %}<button name="decision" value="approve">确认</button> <button class="secondary" name="decision" value="reject">拒绝</button></form>
-  {% elif run.status == 'failed' %}<form method="post" action="{% url 'retry_run' run.id %}">{% csrf_token %}<button class="secondary">重试</button></form>{% else %}—{% endif %}</td></tr>
+  {% elif run.status == 'failed' or run.status == 'pending' or run.status == 'running' %}<form method="post" action="{% url 'resume_run' run.id %}">{% csrf_token %}<button class="secondary">{% if run.status == 'failed' %}重试{% else %}继续处理{% endif %}</button></form>{% else %}—{% endif %}</td></tr>
   {% empty %}<tr><td colspan="3">还没有运行记录。</td></tr>{% endfor %}
   </tbody></table></div>
 </section>

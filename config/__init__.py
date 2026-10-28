@@ -1,3 +1,1 @@
-from .celery import app as celery_app
-
-__all__ = ("celery_app",)
+"""项目配置包，不在导入时启动任务或加载外部服务。"""

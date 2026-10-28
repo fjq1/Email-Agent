@@ -6,9 +6,6 @@ x-app: &app
   environment:
     POSTGRES_HOST: postgres
     POSTGRES_PORT: "5432"
-    REDIS_HOST: redis
-    REDIS_PORT: "6379"
-    CELERY_BROKER_URL: redis://redis:6379/0
   profiles: [app]
 
 services:
@@ -29,20 +26,6 @@ services:
       retries: 20
     restart: unless-stopped
 
-  redis:
-    image: redis:7.4-alpine
-    command: [redis-server, --appendonly, "yes"]
-    ports:
-      - "127.0.0.1:${REDIS_PORT:-56379}:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: [CMD, redis-cli, ping]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-    restart: unless-stopped
-
   init:
     <<: *app
     command: [sh, -c, "python manage.py migrate --noinput && python manage.py init_checkpoints"]
@@ -56,8 +39,6 @@ services:
     depends_on:
       init:
         condition: service_completed_successfully
-      redis:
-        condition: service_healthy
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready/', timeout=15)"]
       interval: 30s
@@ -65,26 +46,5 @@ services:
       retries: 3
     restart: unless-stopped
 
-  worker:
-    <<: *app
-    command: [celery, -A, config, worker, --loglevel=INFO, --concurrency=2]
-    depends_on:
-      init:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-
-  beat:
-    <<: *app
-    command: [celery, -A, config, beat, --loglevel=INFO, --schedule=/tmp/email-agent-beat]
-    depends_on:
-      init:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-
 volumes:
   postgres_data:
-  redis_data:

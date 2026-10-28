@@ -1,4 +1,4 @@
-"""通过真实队列验证跨进程恢复，可选重启本项目 Web 和 Worker。"""
+"""通过独立命令进程验证同步暂停与恢复，可选重启项目的服务。"""
 
 import argparse
 import os
@@ -22,12 +22,8 @@ def wait_for(check, description, timeout=45):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--restart", action="store_true", help="在审核暂停后重启 Web 和 Worker")
-    parser.add_argument(
-        "--restart-storage",
-        action="store_true",
-        help="同时重启 PostgreSQL 和 Redis，验证持久化数据",
-    )
+    parser.add_argument("--restart", action="store_true", help="审核暂停后重启 Web")
+    parser.add_argument("--restart-storage", action="store_true", help="同时重启 PostgreSQL")
     options = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
     sys.path.insert(0, str(root))
@@ -41,53 +37,73 @@ def main():
     from django.contrib.auth import get_user_model
     from django.db import InterfaceError, OperationalError, connections, transaction
 
-    from email_agent.models import AgentRun, AuditEvent, OperationRecord, OutboxEvent
-    from email_agent.services.runs import create_probe, decide_probe
+    from email_agent.models import AgentRun, AuditEvent, OperationRecord
     from email_agent.workflows.checkpoints import open_checkpointer
-    from email_agent.workflows.probe import advance_run
 
-    # 临时用户不可登录；成功后只清理由本脚本创建的数据。
     owner = get_user_model().objects.create_user(
         username=f"_stage0_verify_{uuid.uuid4().hex[:12]}", is_active=False
     )
-    run = create_probe(owner)
 
-    def has_status(status):
-        try:
-            run.refresh_from_db()
-            return run.status == status
-        except (InterfaceError, OperationalError):
-            connections.close_all()
-            return False
+    def run_command(*arguments):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(root / "manage.py"),
+                "probe_workflow",
+                "--username",
+                owner.username,
+                *arguments,
+            ],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            timeout=60,
+        )
+        return dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
 
-    wait_for(lambda: has_status(AgentRun.Status.WAITING_REVIEW), "Worker 暂停等待审核")
-    print("真实队列执行并暂停：通过")
+    started = run_command()
+    run = AgentRun.objects.get(pk=started["run_id"], owner=owner)
+    assert started["status"] == AgentRun.Status.WAITING_REVIEW
+    print("独立进程同步执行并暂停：通过")
     if options.restart_storage:
         subprocess.run(
-            ["docker", "compose", "restart", "postgres", "redis"],
+            ["docker", "compose", "restart", "postgres"],
             cwd=root,
             check=True,
             capture_output=True,
             timeout=90,
         )
         connections.close_all()
-        print("PostgreSQL / Redis 重启：完成")
+        print("PostgreSQL 重启：完成")
     if options.restart or options.restart_storage:
         subprocess.run(
-            ["docker", "compose", "restart", "web", "worker"],
+            ["docker", "compose", "restart", "web"],
             cwd=root,
             check=True,
             capture_output=True,
             timeout=90,
         )
-        print("Web / Worker 重启：完成")
-    wait_for(lambda: has_status(AgentRun.Status.WAITING_REVIEW), "持久化的待审核运行")
-    decide_probe(run.id, owner, "approve")
-    decide_probe(run.id, owner, "approve")
-    wait_for(lambda: has_status(AgentRun.Status.SUCCEEDED), "重启后恢复完成")
-    assert advance_run(run.id) == AgentRun.Status.SUCCEEDED
+        print("Web 重启：完成")
+
+    def paused_run_exists():
+        try:
+            run.refresh_from_db()
+            return run.status == AgentRun.Status.WAITING_REVIEW
+        except (InterfaceError, OperationalError):
+            connections.close_all()
+            return False
+
+    wait_for(paused_run_exists, "持久化的待审核运行")
+    approved = run_command("--run-id", str(run.id), "--decision", "approve")
+    assert approved["status"] == AgentRun.Status.SUCCEEDED
+    assert (
+        run_command("--run-id", str(run.id), "--decision", "approve")["status"]
+        == AgentRun.Status.SUCCEEDED
+    )
     assert OperationRecord.objects.filter(run=run).count() == 1
-    print("恢复、重复确认与操作去重：通过")
+    print("新进程恢复、重复确认与操作去重：通过")
 
     def web_ready():
         try:
@@ -101,7 +117,6 @@ def main():
     with open_checkpointer() as saver:
         saver.delete_thread(str(run.thread_id))
     with transaction.atomic():
-        OutboxEvent.objects.filter(run=run).delete()
         AuditEvent.objects.filter(run=run).delete()
         OperationRecord.objects.filter(run=run).delete()
         run.delete()

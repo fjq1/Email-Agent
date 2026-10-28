@@ -14,9 +14,6 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U email_agent -d email_agent"
           --health-interval 5s --health-timeout 3s --health-retries 20
-      redis:
-        image: redis:7.4-alpine
-        ports: ["6379:6379"]
     env:
       DJANGO_SETTINGS_MODULE: config.settings.test
       DJANGO_SECRET_KEY: ci-only-secret-key-not-used-in-any-deployed-environment
@@ -25,7 +22,6 @@ jobs:
       POSTGRES_PASSWORD: ci-local-password
       POSTGRES_HOST: 127.0.0.1
       POSTGRES_PORT: "5432"
-      REDIS_PORT: "6379"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6

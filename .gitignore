@@ -15,7 +15,6 @@ htmlcov/
 .coverage
 coverage.xml
 staticfiles/
-celerybeat-schedule*
 *.log
 db.sqlite3
 .idea/

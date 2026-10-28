@@ -86,30 +86,6 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
-REDIS_HOST = env("REDIS_HOST", default="127.0.0.1")
-REDIS_PORT = env.int("REDIS_PORT", default=56379)
-CELERY_BROKER_URL = env("CELERY_BROKER_URL", default=f"redis://{REDIS_HOST}:{REDIS_PORT}/0")
-CELERY_ACCEPT_CONTENT = ["json"]
-CELERY_TASK_SERIALIZER = "json"
-CELERY_RESULT_SERIALIZER = "json"
-CELERY_TASK_IGNORE_RESULT = True
-CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
-CELERY_BROKER_CONNECTION_TIMEOUT = 3
-CELERY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": 3600, "socket_timeout": 3}
-CELERY_WORKER_PREFETCH_MULTIPLIER = 1
-CELERY_TIMEZONE = "UTC"
-CELERY_BEAT_SCHEDULE = {
-    "投递数据库中的待执行事件": {
-        "task": "email_agent.dispatch_outbox",
-        "schedule": 10.0,
-    },
-    "恢复长时间未更新的诊断运行": {
-        "task": "email_agent.recover_stalled_runs",
-        "schedule": 60.0,
-    },
-}
-RUN_STALE_SECONDS = env.int("RUN_STALE_SECONDS", default=300)
-
 LLM_DEFAULT_PROVIDER = env("LLM_DEFAULT_PROVIDER", default="bailian")
 LLM_TIMEOUT_SECONDS = env.float("LLM_TIMEOUT_SECONDS", default=60)
 LLM_MAX_RETRIES = env.int("LLM_MAX_RETRIES", default=2)

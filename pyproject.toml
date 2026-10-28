@@ -3,7 +3,6 @@ name = "agent-project"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
-    "celery[redis]>=5.6",
     "django>=6.1.2",
     "django-environ>=0.12",
     "langchain>=1.4.7",
