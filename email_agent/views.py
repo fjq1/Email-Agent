@@ -5,11 +5,13 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
 from email_agent.intelligence.models import provider_statuses
-from email_agent.models import AgentRun
+from email_agent.models import AgentRun, MailboxAccount
 from email_agent.services.health import infrastructure_status
+from email_agent.services.oauth import connection_options
 from email_agent.services.runs import create_probe, decide_probe, resume_probe
 
 
@@ -30,6 +32,7 @@ def readiness(request):
 
 @login_required
 @require_GET
+@never_cache
 def dashboard(request):
     return render(
         request,
@@ -37,6 +40,8 @@ def dashboard(request):
         {
             "runs": AgentRun.objects.filter(owner=request.user)[:20],
             "providers": provider_statuses(),
+            "mailboxes": MailboxAccount.objects.filter(owner=request.user),
+            "mail_connections": connection_options(),
         },
     )
 

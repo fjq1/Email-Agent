@@ -20,10 +20,16 @@
     table { border-collapse: collapse; width: 100%; }
     td, th { padding: 12px 8px; text-align: left; border-bottom: 1px solid #e4e9f2; vertical-align: top; }
     .scroll { overflow-x: auto; }
+    select { padding: 9px; border: 1px solid #b6c3d5; border-radius: 6px; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .mail-body { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.8; }
+    .mail-card { border-top: 1px solid #e4e9f2; padding-top: 20px; margin-top: 20px; }
+    nav { display: flex; gap: 18px; margin-bottom: 20px; flex-wrap: wrap; }
   </style>
 </head>
 <body><main>
   <header><h1>邮件助理</h1>{% if user.is_authenticated %}<div class="row"><span>{{ user.username }}</span><form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="secondary">退出登录</button></form></div>{% endif %}</header>
+  {% if user.is_authenticated %}<nav aria-label="主导航"><a href="{% url 'dashboard' %}">我的邮箱</a><a href="{% url 'mailbox_setup' %}">连接配置</a></nav>{% endif %}
   {% for message in messages %}<div class="notice" role="status">{{ message }}</div>{% endfor %}
   {% block content %}{% endblock %}
 </main></body>

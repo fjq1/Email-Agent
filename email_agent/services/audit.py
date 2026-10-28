@@ -20,6 +20,8 @@ def redact(value):
     if isinstance(value, str):
         secrets = [settings.SECRET_KEY, settings.DATABASES["default"].get("PASSWORD", "")]
         secrets += [config["api_key"] for config in settings.MODEL_PROVIDERS.values()]
+        secrets += [settings.MAIL_TOKEN_ENCRYPTION_KEY]
+        secrets += [config["client_secret"] for config in settings.MAIL_OAUTH_PROVIDERS.values()]
         for secret in secrets:
             if secret and len(secret) >= 8:
                 value = value.replace(secret, "[已隐藏]")

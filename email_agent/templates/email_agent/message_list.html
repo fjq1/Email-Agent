@@ -1,0 +1,51 @@
+{% extends "email_agent/base.html" %}
+{% block title %}检索邮件 · 邮件助理{% endblock %}
+{% block content %}
+<section>
+  <h2>{{ account.email_address }}</h2>
+  <p class="muted">{{ account.get_provider_display }} · {{ account.get_status_display }} · 只读访问</p>
+  {# 新查询不携带旧 cursor；更改条件后始终从第一页开始。 #}
+  <form method="get">
+    <div class="actions">
+      <label>检索条件 {{ form.query }}</label>
+      <label>每页 {{ form.page_size }}</label>
+      <button>检索</button>
+      <a href="{% url 'mailbox_messages' account.id %}">最近邮件 / 重置分页</a>
+    </div>
+    {{ form.errors }}
+  </form>
+  {% if account.provider == 'gmail' %}
+    <p class="muted">支持 Gmail 原生语法，如 <code>from:someone@example.com subject:项目 after:2026/10/01</code>。</p>
+  {% else %}
+    <p class="muted">支持 Outlook KQL，如 <code>from:someone@example.com</code> 或 <code>subject:项目</code>。原生搜索最多返回 1000 条，范围过大时请增加日期或关键词。</p>
+  {% endif %}
+  {% if account.status != 'connected' %}
+    <form method="post" action="{% url 'mailbox_connect' account.provider %}">
+      {% csrf_token %}
+      <input type="hidden" name="account_id" value="{{ account.id }}">
+      <button class="secondary">重新授权</button>
+    </form>
+  {% endif %}
+</section>
+<section>
+  <h2>检索结果</h2>
+  <p class="muted">当前页 {{ emails|length }} 封。正文按需读取；搜索摘要不会覆盖已缓存的正文。</p>
+  {% for email in emails %}
+    <article class="mail-card">
+      <h3>
+        <a href="{% url 'mailbox_message' account.id email.id %}">{{ email.subject|default:"（无主题）" }}</a>
+      </h3>
+      <p class="muted">{{ email.sender.name }} &lt;{{ email.sender.address }}&gt; · {{ email.received_at|date:"Y-m-d H:i:s T" }}</p>
+      <p>{{ email.snippet }}</p>
+      {% if email.provider_thread_id %}
+        <a href="{% url 'mailbox_thread' account.id email.id %}">查看会话</a>
+      {% endif %}
+    </article>
+  {% empty %}
+    <p>当前页没有可展示的邮件。若上方有连接或查询错误，请处理后重新检索。</p>
+  {% endfor %}
+  {% if next_cursor %}
+    <p><a href="?query={{ query|urlencode }}&amp;page_size={{ page_size }}&amp;cursor={{ next_cursor|urlencode }}">下一页</a></p>
+  {% endif %}
+</section>
+{% endblock %}

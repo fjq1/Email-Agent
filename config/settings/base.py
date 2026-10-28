@@ -112,16 +112,49 @@ MODEL_PROVIDERS = {
 }
 OPENAI_USE_RESPONSES_API = env.bool("OPENAI_USE_RESPONSES_API", default=True)
 
+# 邮箱授权与模型 API 完全独立。未配置 OAuth 时仍可登录并查看配置指引。
+MAIL_TOKEN_ENCRYPTION_KEY = env("MAIL_TOKEN_ENCRYPTION_KEY", default="")
+MAIL_HTTP_TIMEOUT = env.float("MAIL_HTTP_TIMEOUT", default=15)
+MAIL_MAX_BODY_CHARS = env.int("MAIL_MAX_BODY_CHARS", default=200000)
+MAIL_MAX_RESPONSE_BYTES = env.int("MAIL_MAX_RESPONSE_BYTES", default=32 * 1024 * 1024)
+MAIL_OAUTH_PROVIDERS = {
+    "gmail": {
+        "client_id": env("GMAIL_CLIENT_ID", default=""),
+        "client_secret": env("GMAIL_CLIENT_SECRET", default=""),
+        "redirect_uri": env(
+            "GMAIL_REDIRECT_URI", default="http://localhost:8000/mailboxes/oauth/gmail/callback/"
+        ),
+    },
+    "outlook": {
+        "client_id": env("OUTLOOK_CLIENT_ID", default=""),
+        "client_secret": env("OUTLOOK_CLIENT_SECRET", default=""),
+        "redirect_uri": env(
+            "OUTLOOK_REDIRECT_URI",
+            default="http://localhost:8000/mailboxes/oauth/outlook/callback/",
+        ),
+        "tenant": env("OUTLOOK_TENANT_ID", default="common"),
+    },
+}
+
 # Django 自身的通知邮件先输出到控制台；真实邮箱发送由后续适配器负责。
 MAILERS = {"default": {"BACKEND": "django.core.mail.backends.console.EmailBackend"}}
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {"standard": {"format": "{asctime} {levelname} {name} {message}", "style": "{"}},
-    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "standard"}},
+    "filters": {"oauth_secrets": {"()": "email_agent.logging.RedactOAuthQueryFilter"}},
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "standard",
+            "filters": ["oauth_secrets"],
+        }
+    },
     "root": {"handlers": ["console"], "level": env("LOG_LEVEL", default="INFO")},
     # HTTP 调试日志可能包含邮件正文和请求参数，默认关闭。
     "loggers": {
+        # runserver 默认不向根日志传播，需要显式使用带授权参数脱敏的处理器。
+        "django.server": {"handlers": ["console"], "level": "INFO", "propagate": False},
         "httpx": {"level": "WARNING"},
         "httpcore": {"level": "WARNING"},
     },

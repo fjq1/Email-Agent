@@ -1,0 +1,52 @@
+{% extends "email_agent/base.html" %}
+{% block title %}邮件详情 · 邮件助理{% endblock %}
+{% block content %}
+<section>
+  <div class="actions">
+    <a href="{% url 'mailbox_messages' account.id %}">返回邮件检索</a>
+    {% if email.provider_thread_id %}
+      <a href="{% url 'mailbox_thread' account.id email.id %}">查看会话</a>
+    {% endif %}
+  </div>
+  <h2>{{ email.subject|default:"（无主题）" }}</h2>
+  <p>发件人：{{ email.sender.name }} &lt;{{ email.sender.address }}&gt;</p>
+  <p>
+    收件人：
+    {% for person in email.to_recipients %}
+      {{ person.name }} &lt;{{ person.address }}&gt;{% if not forloop.last %}；{% endif %}
+    {% empty %}
+      未提供
+    {% endfor %}
+  </p>
+  {% if email.cc_recipients %}
+    <p>
+      抄送：
+      {% for person in email.cc_recipients %}
+        {{ person.name }} &lt;{{ person.address }}&gt;{% if not forloop.last %}；{% endif %}
+      {% endfor %}
+    </p>
+  {% endif %}
+  <p class="muted">收到：{{ email.received_at|date:"Y-m-d H:i:s T" }} · 正文读取：{{ email.body_fetched_at|date:"Y-m-d H:i:s T" }}</p>
+  {% if cached %}
+    <p class="notice">本次实时读取失败。下方仅展示已有缓存，可能与原邮箱当前内容不同。</p>
+  {% endif %}
+  {% if email.body_truncated %}
+    <p class="notice">正文超过当前长度限制，仅展示前一部分。请在原邮箱查看完整内容。</p>
+  {% endif %}
+  {# 正文是纯文本，保持 Django 自动转义，不使用 safe 过滤器。 #}
+  {% if email.body_loaded %}
+    <pre class="mail-body">{{ email.body_text|default:"（正文为空）" }}</pre>
+  {% else %}
+    <p>正文尚未读取，请恢复连接后刷新。</p>
+  {% endif %}
+  {% if email.attachments %}
+    <h3>附件信息</h3>
+    <ul>
+      {% for attachment in email.attachments %}
+        <li>{{ attachment.name }}{% if attachment.size != None %} · {{ attachment.size }} 字节{% endif %}</li>
+      {% endfor %}
+    </ul>
+    <p class="muted">本阶段展示附件元信息，附件请在原邮箱下载。</p>
+  {% endif %}
+</section>
+{% endblock %}

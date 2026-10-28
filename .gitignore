@@ -8,6 +8,11 @@ __pycache__/
 .env.*
 !.env.example
 
+# 官方控制台下载的 OAuth 凭据和本地令牌不进入仓库。
+credentials.json
+client_secret*.json
+token.json
+
 # 测试、开发工具与运行生成物
 .pytest_cache/
 .ruff_cache/

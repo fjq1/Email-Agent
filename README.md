@@ -1,8 +1,8 @@
 # Email Agent
 
-基于 Django、PostgreSQL、LangChain 和 LangGraph 的邮件助理。当前阶段 0 使用同步执行：Web 和命令行直接运行工作流，外部基础设施只需要 PostgreSQL。真实 Gmail / Outlook 接入从阶段 1 开始。
+基于 Django、PostgreSQL、LangChain 和 LangGraph 的邮件助理。当前提供阶段 0 同步基础设施和阶段 1 Gmail / Outlook 只读接入。Web 和命令行同步执行，外部基础设施只需要 PostgreSQL。
 
-目录职责、后续功能和阶段验收见 [执行方案](docs/IMPLEMENTATION_PLAN.md)。
+目录职责、后续功能和阶段验收见 [执行方案](docs/IMPLEMENTATION_PLAN.md)。首次连接邮箱请按 [Gmail / Outlook 配置指南](docs/MAILBOX_SETUP.md) 创建 OAuth 应用并填写 `.env`。
 
 ## 已提供的基础能力
 
@@ -12,6 +12,11 @@
 - 可暂停、确认、拒绝、失败重试的基础设施诊断流程；没有邮件发送或模型费用。
 - 百炼、DeepSeek 官方和 OpenAI / GPT 的统一模型工厂，平台独立配置，按需创建。
 - 中文控制台、管理命令、真实 PostgreSQL 测试和 GitHub Actions 验证配置。
+- Gmail / Outlook 官方 OAuth、按用户隔离的多邮箱账户、加密授权存储和令牌刷新。
+- 真实邮件搜索与分页、按需正文读取、会话分页、附件元信息和幂等缓存。
+- 只读邮件权限、纯文本展示、一次性授权状态和受约束的分页链接。
+
+模型 API Key 和邮箱 OAuth 凭据分别配置。现有模型配置可以继续使用；邮箱阶段 1 不调用模型进行分析。邮件理解、草稿和发送属于后续阶段。
 
 ## 首次启动
 
@@ -27,6 +32,8 @@ docker compose exec web python manage.py createsuperuser
 首次构建会下载 Python 依赖和容器镜像。`init` 服务自动运行 Django 迁移与检查点初始化，成功后启动 Web。
 
 打开 [本地控制台](http://localhost:8000/)，使用刚创建的账号登录。运维后台位于 [Django Admin](http://localhost:8000/admin/)。管理员密码通过交互输入，不会写入仓库。
+
+主页提供“连接 Gmail / Outlook”和“连接配置”。完成 OAuth 应用注册后，可以在同一浏览器授权自己的真实邮箱。准确回调地址及权限步骤见 [邮箱配置指南](docs/MAILBOX_SETUP.md)。如果平台尚未配置，页面会展示配置提示。
 
 ```powershell
 docker compose ps
@@ -86,9 +93,25 @@ from email_agent.intelligence.models import get_chat_model
 model = get_chat_model("deepseek")
 ```
 
+## 连接与检验真实邮箱
+
+Gmail 使用 `GMAIL_CLIENT_ID`、`GMAIL_CLIENT_SECRET`；Outlook 使用 `OUTLOOK_CLIENT_ID`、`OUTLOOK_CLIENT_SECRET` 和 `OUTLOOK_TENANT_ID`。OAuth 凭据从两个平台的开发者控制台创建，完整步骤见 [邮箱配置指南](docs/MAILBOX_SETUP.md)。
+
+`MAIL_TOKEN_ENCRYPTION_KEY` 用于加密数据库中的授权数据，初始化时生成；已有授权后应保留原值。令牌刷新在当前请求内执行，不需要独立任务进程。
+
+授权后，使用页面检索、翻页、读取正文与会话。Gmail 查询语法和 Outlook KQL 分别按原生规则处理；Graph 原生搜索最多返回 1000 条，需收窄过大的查询。正文会转为纯文本，超过长度限制会显示提示。附件只读取元信息。
+
+可以通过命令验证某个已授权账户：
+
+```powershell
+uv run python manage.py check_mailbox --username 你的Django用户名 --account 邮箱账户UUID
+```
+
+该命令实际读取一封邮件及一页会话，并缓存到 PostgreSQL；输出不包含正文或令牌。真实 OAuth 验收记录见 [阶段 1 验证记录](docs/STAGE1_VERIFICATION.md)。
+
 ## 验证暂停、重启与恢复
 
-1. 登录控制台，点击“创建诊断流程”，请求返回后即进入“等待审核”。
+1. 登录控制台，展开“模型配置与基础设施诊断”，点击“创建诊断流程”，请求返回后即进入“等待审核”。
 2. 重启 Web：`docker compose restart web`。
 3. 再次打开控制台，运行记录仍在；点击“确认”或“拒绝”。
 4. 审核请求返回后状态变为“已完成”或“已拒绝”，只读后台可以看到一条诊断操作记录。
@@ -125,7 +148,7 @@ uv run python manage.py makemigrations --check --dry-run
 uv run pytest
 ```
 
-测试覆盖平台配置隔离、真实 PostgreSQL 检查点、请求内同步处理、重复审批、故障手动重试、中断恢复、登录和跨用户权限。持续集成只启动 PostgreSQL。
+测试覆盖平台配置隔离、PostgreSQL 检查点、同步处理、故障恢复、OAuth 状态绑定与重放防护、加密凭据、刷新失效、邮件协议、正文清洗、分页完整性和用户隔离。持续集成只启动 PostgreSQL。测试模拟邮箱响应，不需要真实 OAuth 凭据。
 
 完整启动应用容器后，可以验证两个独立命令进程之间的恢复与服务重启。该脚本创建不可登录的临时用户，成功后清理自己的诊断数据：
 

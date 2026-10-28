@@ -1,22 +1,110 @@
 {% extends "email_agent/base.html" %}
 {% block content %}
-<p class="muted">阶段 0 · 基础设施控制台</p>
-<div class="grid">{% for provider in providers %}<div class="card">
-  <h2>{{ provider.label }}</h2><p><code>{{ provider.model }}</code></p>
-  <p>{% if provider.configured %}<span class="badge">已填写密钥，连接待验证</span>{% else %}等待填写 API Key{% endif %}{% if provider.default %} · 默认平台{% endif %}</p>
-</div>{% endfor %}</div>
+<p class="muted">阶段 1 · 连接真实邮箱，检索邮件并查看正文与会话</p>
 <section>
-  <h2>验证处理流程</h2>
-  <p>创建诊断后，会直接完成准备并暂停等待审核。你可以重启服务，再回来确认或拒绝。此诊断仅写入本地操作记录。</p>
-  <form method="post" action="{% url 'start_probe' %}">{% csrf_token %}<button>创建诊断流程</button></form>
+  <div class="row">
+    <h2>我的邮箱</h2>
+    <a href="{% url 'mailbox_setup' %}">首次连接配置说明</a>
+  </div>
+  <div class="actions">
+    {% for connection in mail_connections %}
+      <form method="post" action="{% url 'mailbox_connect' connection.name %}">
+        {% csrf_token %}
+        <button>连接 {{ connection.label }}</button>
+        {% if not connection.configured %}<span class="muted">需先配置 OAuth</span>{% endif %}
+      </form>
+    {% endfor %}
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>邮箱</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for mailbox in mailboxes %}
+          <tr>
+            <td>{{ mailbox.email_address }}<p class="muted">{{ mailbox.get_provider_display }}</p></td>
+            <td>{{ mailbox.get_status_display }}</td>
+            <td>
+              <div class="actions">
+                {% if mailbox.status == 'connected' %}
+                  <a href="{% url 'mailbox_messages' mailbox.id %}">检索邮件</a>
+                {% endif %}
+                <form method="post" action="{% url 'mailbox_connect' mailbox.provider %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="account_id" value="{{ mailbox.id }}">
+                  <button class="secondary">重新授权</button>
+                </form>
+                {% if mailbox.status != 'disconnected' %}
+                  <form method="post" action="{% url 'mailbox_disconnect' mailbox.id %}">
+                    {% csrf_token %}
+                    <button class="secondary">断开连接</button>
+                  </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3">尚未连接邮箱。先在“连接配置”中完成应用注册，再点击连接并授权。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
-<section><div class="row"><h2>我的最近运行</h2><a href="{% url 'dashboard' %}">刷新状态</a></div>
-  <div class="scroll"><table><thead><tr><th>运行</th><th>状态</th><th>操作</th></tr></thead><tbody>
-  {% for run in runs %}<tr><td><code>{{ run.id }}</code><p class="muted">{{ run.created_at|date:"Y-m-d H:i:s" }}</p></td>
-  <td>{{ run.get_status_display }}{% if run.last_error_code %}<p class="muted">{{ run.last_error_code }}</p>{% endif %}</td>
-  <td>{% if run.status == 'waiting_review' %}<form method="post" action="{% url 'review_probe' run.id %}">{% csrf_token %}<button name="decision" value="approve">确认</button> <button class="secondary" name="decision" value="reject">拒绝</button></form>
-  {% elif run.status == 'failed' or run.status == 'pending' or run.status == 'running' %}<form method="post" action="{% url 'resume_run' run.id %}">{% csrf_token %}<button class="secondary">{% if run.status == 'failed' %}重试{% else %}继续处理{% endif %}</button></form>{% else %}—{% endif %}</td></tr>
-  {% empty %}<tr><td colspan="3">还没有运行记录。</td></tr>{% endfor %}
-  </tbody></table></div>
-</section>
+{# 基础设施诊断仍用于验证暂停与恢复，收起后不影响日常邮箱使用。 #}
+<details>
+  <summary>模型配置与基础设施诊断</summary>
+  <div class="grid">
+    {% for provider in providers %}
+      <div class="card">
+        <h2>{{ provider.label }}</h2>
+        <p><code>{{ provider.model }}</code></p>
+        <p>
+          {% if provider.configured %}<span class="badge">已填写密钥，连接待验证</span>{% else %}等待填写 API Key{% endif %}
+          {% if provider.default %} · 默认平台{% endif %}
+        </p>
+      </div>
+    {% endfor %}
+  </div>
+  <section>
+    <h2>验证处理流程</h2>
+    <p>创建诊断后，会直接完成准备并暂停等待审核。你可以重启服务，再回来确认或拒绝。此诊断仅写入本地操作记录。</p>
+    <form method="post" action="{% url 'start_probe' %}">
+      {% csrf_token %}
+      <button>创建诊断流程</button>
+    </form>
+  </section>
+  <section>
+    <div class="row"><h2>我的最近运行</h2><a href="{% url 'dashboard' %}">刷新状态</a></div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>运行</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody>
+          {% for run in runs %}
+            <tr>
+              <td><code>{{ run.id }}</code><p class="muted">{{ run.created_at|date:"Y-m-d H:i:s" }}</p></td>
+              <td>{{ run.get_status_display }}{% if run.last_error_code %}<p class="muted">{{ run.last_error_code }}</p>{% endif %}</td>
+              <td>
+                {% if run.status == 'waiting_review' %}
+                  <form method="post" action="{% url 'review_probe' run.id %}">
+                    {% csrf_token %}
+                    <button name="decision" value="approve">确认</button>
+                    <button class="secondary" name="decision" value="reject">拒绝</button>
+                  </form>
+                {% elif run.status == 'failed' or run.status == 'pending' or run.status == 'running' %}
+                  <form method="post" action="{% url 'resume_run' run.id %}">
+                    {% csrf_token %}
+                    <button class="secondary">{% if run.status == 'failed' %}重试{% else %}继续处理{% endif %}</button>
+                  </form>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="3">还没有运行记录。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</details>
 {% endblock %}

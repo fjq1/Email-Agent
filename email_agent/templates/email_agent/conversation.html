@@ -1,0 +1,27 @@
+{% extends "email_agent/base.html" %}
+{% block title %}邮件会话 · 邮件助理{% endblock %}
+{% block content %}
+<section>
+  <a href="{% url 'mailbox_message' account.id source.id %}">返回原邮件</a>
+  <h2>{{ source.subject|default:"邮件会话" }}</h2>
+  <p class="muted">{{ account.email_address }} · 每页 {{ page_size }} 封，按服务商返回顺序展示。会话内容变化时，分页结果也可能变化。</p>
+  {% for email in emails %}
+    <article class="mail-card">
+      <h3>
+        <a href="{% url 'mailbox_message' account.id email.id %}">{{ email.subject|default:"（无主题）" }}</a>
+      </h3>
+      <p class="muted">{{ email.sender.name }} &lt;{{ email.sender.address }}&gt; · {{ email.received_at|date:"Y-m-d H:i:s T" }}</p>
+      {% if email.body_truncated %}
+        <p class="notice">该正文过长，当前仅显示一部分。</p>
+      {% endif %}
+      {# 会话与单封邮件使用相同的纯文本展示策略。 #}
+      <pre class="mail-body">{{ email.body_text|default:"（正文为空）" }}</pre>
+    </article>
+  {% empty %}
+    <p>没有可展示的会话邮件。</p>
+  {% endfor %}
+  {% if next_cursor %}
+    <p><a href="?page_size={{ page_size }}&amp;cursor={{ next_cursor|urlencode }}">下一页</a></p>
+  {% endif %}
+</section>
+{% endblock %}

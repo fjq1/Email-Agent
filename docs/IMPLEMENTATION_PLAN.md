@@ -49,12 +49,22 @@ agent-project/
 │   └── urls.py                      # 登录、控制台和探针入口
 ├── email_agent/
 │   ├── models/
-│   │   └── operations.py            # 运行、操作记录和审计
+│   │   ├── operations.py            # 运行、操作记录和审计
+│   │   └── mailboxes.py             # 邮箱账户、授权过程和邮件缓存
+│   ├── providers/
+│   │   ├── base.py                  # 统一数据结构、受约束 HTTP 读取和错误类型
+│   │   ├── config.py                # 只读权限和平台 OAuth 配置
+│   │   ├── parsing.py               # MIME、字符集和纯文本清洗
+│   │   ├── gmail.py                 # Google OAuth 与 Gmail API
+│   │   └── outlook.py               # MSAL 与 Microsoft Graph
 │   ├── intelligence/
 │   │   └── models.py                # 三平台模型工厂
 │   ├── services/
 │   │   ├── runs.py                  # 同步启动、审核和手动恢复
 │   │   ├── audit.py                 # 幂等审计与已知敏感信息脱敏
+│   │   ├── credentials.py           # 令牌与授权过程加解密
+│   │   ├── oauth.py                 # 一次性授权状态和账户绑定
+│   │   ├── mailboxes.py             # 刷新、只读检索、分页和缓存
 │   │   └── health.py                # 基础设施健康检查
 │   ├── workflows/
 │   │   ├── checkpoints.py           # PostgreSQL 检查点连接与初始化
@@ -63,6 +73,9 @@ agent-project/
 │   ├── migrations/                  # Django 业务表迁移
 │   ├── templates/                   # 登录与诊断控制台
 │   ├── views.py                     # HTTP 层和用户权限边界
+│   ├── mail_views.py                # 邮箱授权与读取页面
+│   ├── forms.py                     # 检索参数与分页输入校验
+│   ├── logging.py                   # 隐藏访问日志中的授权码和 state
 │   └── admin.py                     # 只读业务运维视图
 ├── tests/                           # 单元测试与 PostgreSQL 集成测试
 ├── scripts/
@@ -79,19 +92,19 @@ agent-project/
 └── README.md                        # 启动与验证说明
 ```
 
-后续新增 `providers/`（Gmail / Outlook）、`ingestion/`（增量同步和清洗）、`intelligence/schemas.py`（结构化数据）、`workflows/mail_processing.py`（真实邮件工作流）以及相应业务模型。按功能增长增添模块，不预先放置大量空目录。
+阶段 1 的只读页面直接同步调用邮箱业务服务。后续再增加 `ingestion/`（增量同步）、`intelligence/schemas.py`（结构化数据）和 `workflows/mail_processing.py`（邮件理解与审核工作流）。按功能增长增添模块，不预先放置空目录或占位代码。
 
 ## 分阶段执行计划
 
 | 阶段 | 功能与实现顺序 | 验收标准 |
 |---|---|---|
 | 0：基础设施 | PostgreSQL、环境变量、用户登录、同步入口、检查点、操作记录、三平台模型工厂、诊断流程、测试 | 请求内完成当前阶段；暂停位置跨进程保留；手动恢复和重复确认不重复写入 |
-| 1：真实邮箱只读接入 | 先验证两平台 OAuth 可行性；优先完成常用邮箱的搜索、分页、正文和会话读取 | 可以查询真实邮件；令牌刷新、撤销授权、断线重连可处理 |
+| 1：真实邮箱只读接入 | Gmail 与 Outlook 的官方 OAuth、加密凭据、搜索、分页、正文、会话读取和只读缓存 | 接入代码与隔离测试已完成；真实授权和读取需按配置指南创建应用后验收 |
 | 2：邮件理解 | 清洗正文；分类、摘要、任务候选、日期、负责人和依赖；回复草稿；业务去重 | 结果附邮件来源与证据；歧义进入待确认；评估集可回归 |
 | 3：审核与执行 | 草稿编辑、任务编辑、确认、拒绝、取消；获批版本发送或创建任务 | 权限和版本校验通过才执行；重复确认不会重复动作；结果可追溯 |
 | 4：恢复与故障验证 | 注入发送前后断网、请求中断、进程退出和数据库故障；核对外部结果 | 已成功动作不盲目重发；未知结果保留核对入口；手动重试和部分成功可继续 |
 | 5：指令与偏好 | 指令解析、结构化搜索条件、批量计划预览；明确确认后保存偏好 | 检索范围可见；批量写入经审核；偏好可修改、禁用和删除 |
-| 6：第二种邮箱 | 另一服务商适配器与统一接口测试；完整执行闭环 | Gmail 与 Outlook 均通过检索、审核、发送和恢复验收 |
+| 6：双平台闭环验收 | 在已有双平台只读适配器上补齐草稿、发送及恢复差异，运行同一套业务场景 | Gmail 与 Outlook 均通过检索、审核、发送和恢复验收 |
 | 7：持续同步与上线 | 先手动触发增量同步，再按需增加定时处理、通知、续期、成本指标、备份和权限部署 | 可发现新增和更新邮件；订阅或授权失效可见且可恢复 |
 
 阶段 0 的诊断审核用于验证基础设施，阶段 3 继续实现真实草稿编辑、逐动作审批与发送权限。
@@ -106,9 +119,15 @@ agent-project/
 - `OperationRecord`：数据库唯一幂等键及结果；当前只记录无外部写入的诊断。
 - `AuditEvent`：事件唯一键、时间和脱敏信息；后台只读。
 
-后续增加：
+阶段 1 增加：
 
-- `MailboxAccount`、`EmailMessage`、`EmailThread`、`SyncCursor`。
+- `MailboxAccount`：用户、稳定服务商身份、邮箱地址、加密授权数据和连接状态。
+- `OAuthAttempt`：绑定用户及浏览器会话的一次性授权过程，10 分钟过期，消费后清空流程密文。
+- `EmailMessage`：按账户及服务商邮件 ID 去重的缓存，正文读取时间、截断标记和附件元信息。
+
+后续按需增加：
+
+- `SyncCursor`，仅在增量同步阶段创建；会话目前直接使用服务商会话 ID 与分页结果，无需重复创建会话表。
 - `AnalysisResult`、`TaskItem`、`TaskDependency`，任务与来源邮件多对多关联。
 - `ActionProposal`、`ApprovalDecision`、`ActionExecution`、`ActionAttempt`。
 - `UserPreference`，保存适用范围、确认来源、版本、有效期和启用状态。
@@ -155,6 +174,16 @@ Gmail 使用 Google OAuth、Gmail API、history 增量同步及 watch / PubSub�
 实际执行的验证结果另见 [阶段 0 验证记录](STAGE0_VERIFICATION.md)。启动命令和环境变量说明见根目录 README。
 
 原始迁移 `0001_initial` 保留为已有数据库的升级历史；`0002_remove_outbox_event` 删除已废弃的投递表。运行、审计、操作记录和检查点继续使用原表。
+
+## 阶段 1 实现与验收边界
+
+已实现两个服务商的只读接入；Google 使用官方 OAuth 库和稳定 UserInfo 身份，Microsoft 使用官方 MSAL 并启用 ImmutableId。授权码流程使用 PKCE；一次性 state 与当前 Django 用户、浏览器会话绑定。凭据、MSAL 缓存和临时授权流程使用独立密钥加密落库。
+
+读取先串行刷新该账户的凭据；API 返回 401 时只强制刷新并重试一次。授权失效进入重新授权状态；网络、配额和限流错误保留有效凭据供手动重试。分页链接签名绑定账户、用户、查询和页大小，Graph nextLink 仅允许官方域名及当前用户邮件路径。
+
+正文按需读取并提取为纯文本；搜索摘要不会覆盖已有正文。页面明确显示缓存读取失败与正文截断情况。断开连接清除本地凭据并取消未完成授权，已缓存邮件保留。
+
+配置步骤见 [MAILBOX_SETUP.md](MAILBOX_SETUP.md)，测试与待完成真实授权见 [STAGE1_VERIFICATION.md](STAGE1_VERIFICATION.md)。阶段 0 的验收文件保留为历史记录。
 
 ## 后续扩展优先级
 

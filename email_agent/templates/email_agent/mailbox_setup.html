@@ -1,0 +1,41 @@
+{% extends "email_agent/base.html" %}
+{% block title %}连接配置 · 邮件助理{% endblock %}
+{% block content %}
+<section>
+  <h2>连接真实邮箱</h2>
+  <p>模型 API Key 用于后续邮件分析。邮箱连接需要在 Google Cloud 和 Microsoft Entra 分别注册自己的 Web 应用；本阶段申请只读邮件权限。</p>
+  <p>完整步骤和常见问题见项目中的 <code>docs/MAILBOX_SETUP.md</code>。凭据填写到 <code>.env</code> 后重新启动应用。</p>
+</section>
+{# 仅展示配置状态和回调地址，不将任何客户端密钥传给浏览器。 #}
+{% for connection in connections %}
+  <section>
+    <h2>{{ connection.label }}</h2>
+    <p>配置状态：{% if connection.configured %}OAuth 客户端已填写，可以尝试连接{% else %}等待填写 OAuth 客户端凭据{% endif %}</p>
+    <p>回调地址（在平台控制台逐字填写）：<code>{{ connection.redirect_uri }}</code></p>
+    {% if connection.name == 'gmail' %}
+      <ol>
+        <li>在 <a href="https://console.cloud.google.com/" target="_blank" rel="noopener noreferrer">Google Cloud Console</a> 创建或选择项目，启用 Gmail API。</li>
+        <li>配置 Google Auth Platform 的品牌、受众与数据访问权限；测试模式将自己的 Gmail 添加为测试用户。</li>
+        <li>创建“Web 应用”OAuth 客户端，添加上面的重定向 URI。</li>
+        <li>将 Client ID 和 Client Secret 填入 <code>GMAIL_CLIENT_ID</code>、<code>GMAIL_CLIENT_SECRET</code>。</li>
+      </ol>
+    {% else %}
+      <ol>
+        <li>在 <a href="https://entra.microsoft.com/" target="_blank" rel="noopener noreferrer">Microsoft Entra 管理中心</a> 注册应用。需要个人与组织邮箱时，选择支持组织目录和个人 Microsoft 账户。</li>
+        <li>添加 Web 平台及上面的重定向 URI；创建客户端密码并复制其“值”。</li>
+        <li>添加 Microsoft Graph 的委托权限 <code>User.Read</code> 和 <code>Mail.Read</code>。</li>
+        <li>填写 <code>OUTLOOK_CLIENT_ID</code>、<code>OUTLOOK_CLIENT_SECRET</code>；多账户类型使用 <code>OUTLOOK_TENANT_ID=common</code>。</li>
+      </ol>
+    {% endif %}
+    <form method="post" action="{% url 'mailbox_connect' connection.name %}">
+      {% csrf_token %}
+      <button>连接 {{ connection.label }}</button>
+    </form>
+  </section>
+{% endfor %}
+<section>
+  <h2>本地授权注意事项</h2>
+  <p>请使用和回调一致的主机名登录应用。默认使用 <code>http://localhost:8000</code>；<code>127.0.0.1</code> 的登录会话与它分开。授权过程中不要退出应用账号。</p>
+  <p>本地加密密钥 <code>MAIL_TOKEN_ENCRYPTION_KEY</code> 用来保护刷新凭据，应与数据库备份分开保存；后续不要随意更换。</p>
+</section>
+{% endblock %}

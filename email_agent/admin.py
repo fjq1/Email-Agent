@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from email_agent.models import AgentRun, AuditEvent, OperationRecord
+from email_agent.models import AgentRun, AuditEvent, EmailMessage, MailboxAccount, OperationRecord
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
@@ -31,3 +31,16 @@ class OperationRecordAdmin(ReadOnlyAdmin):
 @admin.register(AuditEvent)
 class AuditEventAdmin(ReadOnlyAdmin):
     list_display = ("event_type", "run", "created_at")
+
+
+@admin.register(MailboxAccount)
+class MailboxAccountAdmin(ReadOnlyAdmin):
+    list_display = ("email_address", "provider", "owner", "status", "last_checked_at")
+    list_filter = ("provider", "status")
+    exclude = ("encrypted_credentials",)
+
+
+@admin.register(EmailMessage)
+class EmailMessageAdmin(ReadOnlyAdmin):
+    list_display = ("subject", "mailbox", "received_at", "body_loaded")
+    search_fields = ("subject", "mailbox__email_address")
