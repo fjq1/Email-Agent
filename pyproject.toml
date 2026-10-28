@@ -1,0 +1,10 @@
+[project]
+name = "agent-project"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "django>=6.1.2",
+    "langchain>=1.4.7",
+    "langchain-openai>=1.7.3",
+    "langgraph>=1.2.18",
+]
