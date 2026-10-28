@@ -3,8 +3,32 @@ name = "agent-project"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
+    "celery[redis]>=5.6",
     "django>=6.1.2",
+    "django-environ>=0.12",
     "langchain>=1.4.7",
+    "langchain-deepseek>=1.1.1",
     "langchain-openai>=1.7.3",
     "langgraph>=1.2.18",
+    "langgraph-checkpoint-postgres>=3",
+    "psycopg[binary,pool]>=3.2",
 ]
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.16.0",
+    "pytest>=9.2.0",
+    "pytest-django>=4.14.0",
+    "ruff>=0.17.3",
+]
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.test"
+python_files = ["test_*.py"]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]

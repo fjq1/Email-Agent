@@ -7,3 +7,15 @@ __pycache__/
 .env
 .env.*
 !.env.example
+
+# 测试、开发工具与运行生成物
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+staticfiles/
+celerybeat-schedule*
+*.log
+db.sqlite3
+.idea/

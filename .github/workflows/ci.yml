@@ -1,0 +1,40 @@
+name: 基础设施验证
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: email_agent
+          POSTGRES_USER: email_agent
+          POSTGRES_PASSWORD: ci-local-password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U email_agent -d email_agent"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      DJANGO_SECRET_KEY: ci-only-secret-key-not-used-in-any-deployed-environment
+      POSTGRES_DB: email_agent
+      POSTGRES_USER: email_agent
+      POSTGRES_PASSWORD: ci-local-password
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: "5432"
+      REDIS_PORT: "6379"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.6"
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run python manage.py check
+      - run: uv run python manage.py makemigrations --check --dry-run
+      - run: uv run pytest

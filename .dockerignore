@@ -1,0 +1,11 @@
+.git
+.venv
+.env
+.env.*
+.pytest_cache
+.ruff_cache
+.idea
+__pycache__
+*.pyc
+staticfiles
+celerybeat-schedule*

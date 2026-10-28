@@ -1,0 +1,12 @@
+{% extends "email_agent/base.html" %}
+{% block title %}登录 · 邮件助理{% endblock %}
+{% block content %}
+<section style="max-width: 420px; margin: 24px auto;">
+  <h2>登录控制台</h2>
+  <p class="muted">使用管理员创建的账号登录。</p>
+  <form method="post">{% csrf_token %}{{ form.as_p }}
+    <input type="hidden" name="next" value="{{ next }}">
+    <button type="submit">登录</button>
+  </form>
+</section>
+{% endblock %}
