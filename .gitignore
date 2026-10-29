@@ -23,3 +23,7 @@ staticfiles/
 *.log
 db.sqlite3
 .idea/
+
+# 执行计划与验证报告仅保留在本地，docs 只跟踪邮箱配置指南。
+/docs/*
+!/docs/MAILBOX_SETUP.md
