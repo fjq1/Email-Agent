@@ -1,39 +1,53 @@
+{% load static %}
 <!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}邮件助理{% endblock %}</title>
-  <style>
-    body { font-family: system-ui, sans-serif; margin: 0; color: #182438; background: #f4f6fa; }
-    main { max-width: 1060px; margin: 48px auto; padding: 0 24px; }
-    header, .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-    section, .card { background: white; border: 1px solid #dce3ee; border-radius: 12px; padding: 24px; margin: 20px 0; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
-    .grid .card { margin: 0; }
-    p { line-height: 1.7; } .muted { color: #627084; } .badge { color: #246442; }
-    button { background: #2356b6; color: white; border: 0; border-radius: 6px; padding: 10px 16px; cursor: pointer; }
-    button.secondary { background: #e8edf5; color: #273954; }
-    input { box-sizing: border-box; padding: 10px; border: 1px solid #b6c3d5; border-radius: 6px; max-width: 100%; }
-    .notice { padding: 14px; background: #e5edf9; border-radius: 6px; margin: 14px 0; }
-    a { color: #2356b6; } code { overflow-wrap: anywhere; }
-    table { border-collapse: collapse; width: 100%; }
-    td, th { padding: 12px 8px; text-align: left; border-bottom: 1px solid #e4e9f2; vertical-align: top; }
-    .scroll { overflow-x: auto; }
-    select { padding: 9px; border: 1px solid #b6c3d5; border-radius: 6px; }
-    .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-    .mail-body { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.8; }
-    .mail-card { border-top: 1px solid #e4e9f2; padding-top: 20px; margin-top: 20px; }
-    blockquote { margin: 8px 0; padding: 8px 14px; border-left: 3px solid #b6c3d5; background: #f6f8fb; white-space: pre-wrap; overflow-wrap: anywhere; }
-    textarea { box-sizing: border-box; width: 100%; min-height: 220px; padding: 14px; font: inherit; line-height: 1.7; border: 1px solid #b6c3d5; border-radius: 6px; }
-    summary { cursor: pointer; } .warning { color: #8a4a05; }
-    nav { display: flex; gap: 18px; margin-bottom: 20px; flex-wrap: wrap; }
-  </style>
+  <link rel="stylesheet" href="{% static 'email_agent/app.css' %}">
 </head>
-<body><main>
-  <header><h1>邮件助理</h1>{% if user.is_authenticated %}<div class="row"><span>{{ user.username }}</span><form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="secondary">退出登录</button></form></div>{% endif %}</header>
-  {% if user.is_authenticated %}<nav aria-label="主导航"><a href="{% url 'dashboard' %}">我的邮箱</a><a href="{% url 'commands' %}">指令处理</a><a href="{% url 'action_reviews' %}">审核记录</a><a href="{% url 'tasks' %}">我的待办</a><a href="{% url 'task_candidates' %}">候选事项</a><a href="{% url 'preferences' %}">我的偏好</a><a href="{% url 'mailbox_setup' %}">连接配置</a></nav>{% endif %}
-  {% for message in messages %}<div class="notice" role="status">{{ message }}</div>{% endfor %}
-  {% block content %}{% endblock %}
-</main></body>
+<body class="{% if not user.is_authenticated %}auth-page{% endif %}">
+{# 本地 SVG 图标复用，不依赖外部字体、脚本或图标服务。 #}
+<svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 7 8 6 8-6"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 2.7 6.3L21 12l-6.3 2.7L12 21l-2.7-6.3L3 12l6.3-2.7Z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="m8 12 3 3 5-6"/></symbol>
+  <symbol id="i-task" viewBox="0 0 24 24"><path d="m3 6 1.5 1.5L7 5M11 6h10M3 12h4m4 0h10M3 18h4m4 0h10"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="m10 13 4-4m-7 6-1 1a4 4 0 0 0 6 6l4-4a4 4 0 0 0 0-6M8 12a4 4 0 0 1 0-6l4-4a4 4 0 0 1 6 6l-1 1" transform="translate(0 1) scale(.95)"/></symbol>
+</svg>
+<a class="skip-link" href="#main-content">跳转到页面内容</a>
+{% if user.is_authenticated %}
+<aside class="sidebar">
+  <a class="brand" href="{% url 'dashboard' %}"><span class="brand-mark"><svg class="icon"><use href="#i-mail"/></svg></span><span>邮件助理<small>EMAIL WORKSPACE</small></span></a>
+  {% with current=request.resolver_match.url_name %}
+  <nav aria-label="主导航">
+    <p class="nav-caption">工作空间</p>
+    <a {% if current == 'dashboard' or current == 'mailbox_messages' or current == 'mailbox_message' or current == 'mailbox_thread' or current == 'mail_analysis' %}class="active" aria-current="page"{% endif %} href="{% url 'dashboard' %}"><svg class="icon"><use href="#i-mail"/></svg>我的邮箱</a>
+    <a {% if current == 'commands' or current == 'command_detail' or current == 'command_edit' %}class="active" aria-current="page"{% endif %} href="{% url 'commands' %}"><svg class="icon"><use href="#i-spark"/></svg>指令处理</a>
+    <a {% if current == 'action_reviews' or current == 'action_review' or current == 'action_review_edit' %}class="active" aria-current="page"{% endif %} href="{% url 'action_reviews' %}"><svg class="icon"><use href="#i-check"/></svg>审核记录</a>
+    <a {% if current == 'tasks' or current == 'task_detail' %}class="active" aria-current="page"{% endif %} href="{% url 'tasks' %}"><svg class="icon"><use href="#i-task"/></svg>我的待办</a>
+    <p class="nav-caption">管理</p>
+    <a {% if current == 'task_candidates' or current == 'task_candidate' %}class="active" aria-current="page"{% endif %} href="{% url 'task_candidates' %}"><svg class="icon"><use href="#i-layers"/></svg>候选事项</a>
+    <a {% if current == 'preferences' or current == 'preference_edit' %}class="active" aria-current="page"{% endif %} href="{% url 'preferences' %}"><svg class="icon"><use href="#i-settings"/></svg>我的偏好</a>
+    <a {% if current == 'mailbox_setup' %}class="active" aria-current="page"{% endif %} href="{% url 'mailbox_setup' %}"><svg class="icon"><use href="#i-link"/></svg>连接配置</a>
+  </nav>
+  {% endwith %}
+  <div class="sidebar-note"><span class="presence-dot"></span><div>由你掌握每一步<small>发送与创建待办前，始终由你确认。</small></div></div>
+</aside>
+{% endif %}
+<div class="workspace">
+  <header class="topbar">
+    <span class="workspace-label">{% if user.is_authenticated %}个人工作空间{% else %}邮件助理{% endif %}</span>
+    {% if user.is_authenticated %}<div class="user-menu"><span class="avatar">{{ user.username|first|upper }}</span><span>{{ user.username }}</span><form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="text-button">退出登录</button></form></div>{% endif %}
+  </header>
+  <main id="main-content" tabindex="-1">
+    {% for message in messages %}<div class="notice {{ message.tags }}" role="status">{{ message }}</div>{% endfor %}
+    {% block content %}{% endblock %}
+    <footer class="page-footer">邮件助理 <span>·</span> 让重要事项清晰可见</footer>
+  </main>
+</div>
+</body>
 </html>

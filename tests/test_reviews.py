@@ -9,6 +9,7 @@ from email.parser import BytesParser
 
 import httpx
 import pytest
+from django.core.exceptions import ValidationError
 from django.urls import reverse
 
 from email_agent.models import (
@@ -24,7 +25,13 @@ from email_agent.models import (
 from email_agent.providers.gmail import GmailProvider
 from email_agent.providers.outlook import OutlookProvider
 from email_agent.services.analysis import source_snapshot
-from email_agent.services.reviews import decide_proposal, prepare_proposal, resume_proposal
+from email_agent.services.reviews import (
+    decide_proposal,
+    prepare_proposal,
+    restart_proposal,
+    resume_proposal,
+    save_proposal,
+)
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.usefixtures("checkpoints")]
 BODY = "请提交季度报告，完成后回复确认。"
@@ -193,14 +200,42 @@ def test_task_edit_preview_approve_duplicate_confirm_and_status(client, owner, a
     assert task.status == "done"
 
 
-@pytest.mark.parametrize("decision,state", [("reject", "rejected"), ("cancel", "cancelled")])
-def test_reject_or_cancel_preserves_decision_without_execution(owner, analysis, decision, state):
+@pytest.mark.parametrize("decision,state", [("dismiss", "cancelled"), ("reject", "rejected")])
+def test_dismiss_ends_review_until_explicit_restart(client, owner, analysis, decision, state):
+    # 同一主流程也覆盖旧版拒绝记录，不另建重复的兼容测试文件。
     proposal = prepare_proposal(
         analysis.id, owner, candidate_id=analysis.task_sources.get().candidate_id
     )
+    client.force_login(owner)
+    initial = client.get(reverse("action_review", args=[proposal.id])).content.decode()
+    assert 'value="dismiss"' in initial and 'value="reject"' not in initial
     proposal = decide_proposal(proposal.id, owner, proposal.version, decision)
     assert proposal.review_state == state
     assert proposal.decisions.get().decision == state
+    old_run_id = proposal.run_id
+    page = client.get(reverse("action_review", args=[proposal.id])).content.decode()
+    assert "重新处理" in page
+    assert reverse("action_review_edit", args=[proposal.id]) not in page
+    with pytest.raises(ValidationError, match="重新处理"):
+        save_proposal(proposal.id, owner, edit_data(proposal))
+    client.post(reverse("action_review_edit", args=[proposal.id]), edit_data(proposal))
+    proposal.refresh_from_db()
+    assert proposal.version == 1  # 隐藏链接和后端保护同时生效。
+    response = client.post(
+        reverse("action_review_restart", args=[proposal.id]), {"version": 1}, follow=True
+    )
+    assert response.status_code == 200
+    proposal.refresh_from_db()
+    assert proposal.review_state == "pending" and proposal.version == 2
+    assert proposal.run_id != old_run_id and proposal.decisions.get(version=1).decision == state
+    assert reverse("action_review_edit", args=[proposal.id]) in response.content.decode()
+    assert "不执行此建议" in response.content.decode()
+    # 重复旧请求不能继续创建新版本，也不能让旧版批准生效。
+    client.post(reverse("action_review_restart", args=[proposal.id]), {"version": 1})
+    with pytest.raises(ValidationError, match="过期"):
+        decide_proposal(proposal.id, owner, 1, "approve")
+    proposal.refresh_from_db()
+    assert proposal.version == 2
     assert not ActionExecution.objects.exists() and not TaskItem.objects.exists()
 
 
@@ -260,6 +295,8 @@ def test_unknown_send_outcome_is_never_retried(owner, analysis, mail_api):
     proposal = prepare_proposal(analysis.id, owner)
     decide_proposal(proposal.id, owner, 1, "approve")
     assert proposal.executions.get().status == "unknown"
+    with pytest.raises(ValidationError, match="重新处理"):
+        restart_proposal(proposal.id, owner, 1)
     resume_proposal(proposal.id, owner)
     decide_proposal(proposal.id, owner, 1, "approve")
     assert len(mail_api[0]) == 1
@@ -302,6 +339,12 @@ def test_send_permission_and_owner_boundaries(client, owner, analysis, mail_api,
     assert (
         client.post(
             reverse("action_review_edit", args=[proposal.id]), edit_data(proposal)
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            reverse("action_review_restart", args=[proposal.id]), {"version": 1}
         ).status_code
         == 404
     )

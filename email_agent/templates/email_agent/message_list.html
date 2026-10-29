@@ -1,16 +1,17 @@
 {% extends "email_agent/base.html" %}
+{% load presentation %}
 {% block title %}检索邮件 · 邮件助理{% endblock %}
 {% block content %}
+<div class="page-heading"><div><p class="eyebrow">INBOX &amp; SEARCH</p><h1>检索邮件</h1><p>{{ account.email_address }} · {{ account.get_provider_display }}</p></div><span class="status-badge" data-tone="{{ account.status|status_tone }}">{{ account.get_status_display }}</span></div>
 <section>
-  <h2>{{ account.email_address }}</h2>
-  <p class="muted">{{ account.get_provider_display }} · {{ account.get_status_display }} · 只读访问</p>
+  <h2>查找你关心的邮件</h2>
   {# 新查询不携带旧 cursor；更改条件后始终从第一页开始。 #}
   <form method="get">
     <div class="actions">
       <label>检索条件 {{ form.query }}</label>
       <label>每页 {{ form.page_size }}</label>
       <button>检索</button>
-      <a href="{% url 'mailbox_messages' account.id %}">最近邮件 / 重置分页</a>
+      <a href="{% url 'mailbox_messages' account.id %}">重置</a>
     </div>
     {{ form.errors }}
   </form>
@@ -28,8 +29,7 @@
   {% endif %}
 </section>
 <section>
-  <h2>检索结果</h2>
-  <p class="muted">当前页 {{ emails|length }} 封。正文按需读取；搜索摘要不会覆盖已缓存的正文。</p>
+  <div class="section-header"><h2>检索结果</h2><span class="status-badge" data-tone="neutral">当前页 {{ emails|length }} 封</span></div>
   {% for email in emails %}
     <article class="mail-card">
       <h3>
@@ -37,12 +37,10 @@
       </h3>
       <p class="muted">{{ email.sender.name }} &lt;{{ email.sender.address }}&gt; · {{ email.received_at|date:"Y-m-d H:i:s T" }}</p>
       <p>{{ email.snippet }}</p>
-      {% if email.provider_thread_id %}
-        <a href="{% url 'mailbox_thread' account.id email.id %}">查看会话</a>
-      {% endif %}
+      {# 会话作为邮件详情中的辅助入口，列表集中展示搜索结果。 #}
     </article>
   {% empty %}
-    <p>当前页没有可展示的邮件。若上方有连接或查询错误，请处理后重新检索。</p>
+    <div class="empty-state">当前页没有可展示的邮件。可调整条件，或处理上方连接提示后重新检索。</div>
   {% endfor %}
   {% if next_cursor %}
     <p><a href="?query={{ query|urlencode }}&amp;page_size={{ page_size }}&amp;cursor={{ next_cursor|urlencode }}">下一页</a></p>

@@ -1,9 +1,10 @@
 {% extends "email_agent/base.html" %}
+{% load presentation %}
 {% block title %}指令计划 · 邮件助理{% endblock %}
 {% block content %}
+<div class="breadcrumb"><a href="{% url 'commands' %}">指令处理</a><span>/</span><span>处理计划</span></div>
+<div class="page-heading"><div><p class="eyebrow">YOUR PROCESSING PLAN</p><h1>处理计划</h1><p>核对范围，逐步推进本次指令。</p></div><span class="status-badge" data-tone="{{ plan.status|status_tone }}">{{ plan.get_status_display }} · 第 {{ plan.version }} 版</span></div>
 <section>
-  <a href="{% url 'commands' %}">返回指令处理</a>
-  <h2>{{ plan.get_status_display }} · 第 {{ plan.version }} 版</h2>
   <blockquote>{{ plan.instruction }}</blockquote>
   <p>本次邮箱：{{ plan.mailbox.email_address }} · {{ plan.mailbox.get_provider_display }} · 时区 {{ plan.timezone_name }}</p>
   {% if plan.error_message %}<p class="warning">{{ plan.error_message }}</p>{% endif %}
@@ -86,7 +87,7 @@
       <article class="mail-card">
         {% if action.selectable and plan.status != 'cancelled' %}<label><input type="checkbox" name="action_ids" value="{{ action.id }}" checked> 选择执行此动作</label>{% endif %}
         <h3>{{ action.proposal.get_kind_display }} · 第 {{ action.proposal.version }} 版</h3>
-        <p><a href="{% url 'action_review' action.proposal_id %}">打开单项审核 / 修改</a> · {{ action.proposal.get_review_state_display }}{% if action.execution %} · {{ action.execution.get_status_display }}{% endif %}</p>
+        <p><a href="{% url 'action_review' action.proposal_id %}">打开单项审核</a> · <span class="status-badge" data-tone="{{ action.proposal.review_state|status_tone }}">{{ action.proposal.review_state|review_label }}</span>{% if action.execution %} · <span class="status-badge" data-tone="{{ action.execution.status|status_tone }}">{{ action.execution.get_status_display }}</span>{% endif %}</p>
         {% if action.stale %}<p class="warning">内容已变化，更新批量预览后才能选择。</p>{% endif %}
         {% if action.reused %}<p class="warning">此事项已有审核单，保留了此前内容和用户修改。请比较本次新分析，需调整时进入单项编辑。</p>{% endif %}
         {% if action.error_message %}<p class="warning">{{ action.error_message }}</p>{% endif %}

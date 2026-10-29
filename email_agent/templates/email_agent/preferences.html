@@ -1,9 +1,10 @@
 {% extends "email_agent/base.html" %}
 {% block title %}我的偏好 · 邮件助理{% endblock %}
 {% block content %}
+<div class="page-heading"><div><p class="eyebrow">PERSONAL PREFERENCES</p><h1>我的偏好</h1><p>让新生成的建议更符合你的习惯。</p></div></div>
 <section>
-  <h2>{% if item %}修改偏好{% else %}确认保存偏好{% endif %}</h2>
-  <p>启用的单邮箱偏好优先于全局默认值。停用后回退到全局；修改只影响之后生成的计划和分析，已保存草稿及审批内容保留。</p>
+  <h2>{% if item %}修改偏好{% else %}添加默认偏好{% endif %}</h2>
+  <p class="muted">单邮箱偏好优先于全局默认值。修改只影响之后生成的计划和分析，已保存草稿及审批内容保留。</p>
   {% if not item %}
     <form method="get" class="actions">
       <label>偏好类型 <select name="key">{% for value,label in key_choices %}<option value="{{ value }}" {% if selected_key == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>

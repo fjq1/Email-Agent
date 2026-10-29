@@ -1,17 +1,17 @@
 {% extends "email_agent/base.html" %}
+{% load presentation %}
 {% block title %}我的待办 · 邮件助理{% endblock %}
 {% block content %}
+<div class="page-heading"><div><p class="eyebrow">YOUR NEXT ACTIONS</p><h1>我的待办</h1><p>从邮件中确认的事项，集中在这里跟进。</p></div><span class="status-badge" data-tone="neutral">共 {{ page.paginator.count }} 项</span></div>
 <section>
-  <h2>我的待办</h2>
-  <p>这里仅展示经过确认创建的正式待办。</p>
   {% for task in page %}
     <article class="mail-card">
       <h3><a href="{% url 'task_detail' task.id %}">{{ task.title }}</a></h3>
-      <p>{{ task.get_status_display }} · {{ task.responsible_name|default:"负责人待指定" }}</p>
+      <p><span class="status-badge" data-tone="{{ task.status|status_tone }}">{{ task.get_status_display }}</span> · {{ task.responsible_name|default:"负责人待指定" }}</p>
       <p class="muted">{{ task.candidate.mailbox.email_address }} · 截止 {{ task.due_date|default:"未设置" }}{% if task.due_time %} {{ task.due_time|time:"H:i" }}{% endif %} · {{ task.timezone_name }}</p>
     </article>
-  {% empty %}<p>还没有正式待办，请先从分析结果审核一个任务候选。</p>{% endfor %}
-  <div class="actions">
+  {% empty %}<div class="empty-state">还没有正式待办。先从分析结果确认一个任务候选，即可开始跟进。</div>{% endfor %}
+  <div class="actions form-footer">
     {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">上一页</a>{% endif %}
     <span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页</span>
     {% if page.has_next %}<a href="?page={{ page.next_page_number }}">下一页</a>{% endif %}

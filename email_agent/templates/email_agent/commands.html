@@ -1,9 +1,11 @@
 {% extends "email_agent/base.html" %}
+{% load presentation %}
 {% block title %}指令处理 · 邮件助理{% endblock %}
 {% block content %}
+<div class="page-heading"><div><p class="eyebrow">ASK YOUR ASSISTANT</p><h1>指令处理</h1><p>从一句话开始，查找邮件、整理事项或准备回复。</p></div></div>
 <section>
-  <h2>用指令处理邮件</h2>
-  <p>可以检索、总结、提取待办或生成回复草稿。先生成可修改的计划，再选择邮件处理；发送与创建正式待办仍需审核。</p>
+  <h2>这次想处理什么？</h2>
+  <p class="muted">先查看可修改的计划，再选择邮件处理。发送与创建正式待办仍需你确认。</p>
   <form method="post">
     {% csrf_token %}{{ form.as_p }}
     <button>解析指令，查看计划</button>
@@ -15,7 +17,7 @@
   {% for plan in plans %}
     <article class="mail-card">
       <h3><a href="{% url 'command_detail' plan.id %}">{{ plan.instruction|truncatechars:100 }}</a></h3>
-      <p>{{ plan.mailbox.email_address }} · {{ plan.get_status_display }} · {{ plan.created_at|date:"Y-m-d H:i T" }}</p>
+      <p><span class="status-badge" data-tone="{{ plan.status|status_tone }}">{{ plan.get_status_display }}</span></p><p class="muted">{{ plan.mailbox.email_address }} · {{ plan.created_at|date:"Y-m-d H:i T" }}</p>
     </article>
   {% empty %}<p>还没有指令计划。</p>{% endfor %}
 </section>

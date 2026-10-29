@@ -186,9 +186,74 @@ def execution_for(proposal):
 
 def can_edit(proposal):
     execution = execution_for(proposal)
-    return (execution is None and proposal.review_state != ActionProposal.ReviewState.APPROVED) or (
+    # 已结束的审核必须显式重新开启，不能通过旧编辑页绕过结束状态。
+    return (execution is None and proposal.review_state == ActionProposal.ReviewState.PENDING) or (
         execution is not None and execution.status == ActionExecution.Status.FAILED
     )
+
+
+def can_restart(proposal):
+    return (
+        proposal.review_state
+        in {
+            ActionProposal.ReviewState.REJECTED,
+            ActionProposal.ReviewState.CANCELLED,
+        }
+        and execution_for(proposal) is None
+    )
+
+
+def _new_version(proposal, owner, content, source=None, *, reopened=False):
+    """在调用方的事务和运行锁内创建新版本，编辑与重新处理共用同一套历史保存规则。"""
+    old_run = proposal.run
+    run = AgentRun.objects.create(owner=owner, kind="action_review")
+    old_run.status = AgentRun.Status.REJECTED
+    old_run.result = {**old_run.result, "superseded_by": str(run.id)}
+    old_run.save(update_fields=["status", "result", "updated_at"])
+    proposal.run, proposal.version = run, proposal.version + 1
+    proposal.content, proposal.content_hash = content, fingerprint(content)
+    if source:
+        proposal.source_digest, proposal.source_snapshot = (
+            message_digest(source),
+            review_snapshot(source),
+        )
+    proposal.review_state = ActionProposal.ReviewState.PENDING
+    proposal.save()
+    record_event(
+        run,
+        "proposal_reopened" if reopened else "proposal_saved",
+        f"proposal:{proposal.id}:{proposal.version}",
+        proposal_id=str(proposal.id),
+        actor_id=owner.pk,
+        version=proposal.version,
+    )
+
+
+def restart_proposal(proposal_id, owner, version):
+    """用户主动重新处理：保留旧决定，复制内容为待审核新版本，不调用模型或执行动作。"""
+    proposal = ActionProposal.objects.select_related("run", "analysis__message__mailbox").get(
+        pk=proposal_id, run__owner=owner
+    )
+    if not can_restart(proposal):
+        raise ValidationError("只有未执行且已结束的建议可以重新处理。")
+    source = None
+    if proposal.kind == ActionProposal.Kind.REPLY:
+        message = proposal.analysis.message
+        source = read_message(message.mailbox_id, owner, message.id)
+    locked_run_id = proposal.run_id
+    try:
+        with run_lock(locked_run_id), transaction.atomic():
+            proposal = ActionProposal.objects.select_for_update().get(
+                pk=proposal.id, run__owner=owner
+            )
+            if proposal.run_id != locked_run_id or str(proposal.version) != str(version):
+                raise ValidationError("审核单版本已变化，请刷新后重新查看。")
+            if not can_restart(proposal):
+                raise ValidationError("此建议当前不能重新处理，请查看最新状态。")
+            _new_version(proposal, owner, dict(proposal.content), source, reopened=True)
+    except RunBusyError:
+        raise ValidationError("该审核单正在处理，请稍后再试。") from None
+    return _advance(proposal)
 
 
 def check_approvable(proposal, owner):
@@ -212,6 +277,8 @@ def save_proposal(proposal_id, owner, data):
     proposal = ActionProposal.objects.select_related("run", "analysis__message__mailbox").get(
         pk=proposal_id, run__owner=owner
     )
+    if not can_edit(proposal):
+        raise ValidationError("已结束的建议请先点击‘重新处理’；已执行或待核对的动作不能修改。")
     source = None
     if proposal.kind == ActionProposal.Kind.REPLY:
         message = proposal.analysis.message
@@ -227,29 +294,7 @@ def save_proposal(proposal_id, owner, data):
             if not can_edit(proposal):
                 raise ValidationError("该动作已经确认、执行或结果待核对，不能直接修改。")
             content = validate_form(proposal, owner, data)
-            # 每次保存生成新的审核运行，旧版本的中断和审批凭据只作为历史保留。
-            old_run = proposal.run
-            run = AgentRun.objects.create(owner=owner, kind="action_review")
-            old_run.status = AgentRun.Status.REJECTED
-            old_run.result = {**old_run.result, "superseded_by": str(run.id)}
-            old_run.save(update_fields=["status", "result", "updated_at"])
-            proposal.run, proposal.version = run, proposal.version + 1
-            proposal.content, proposal.content_hash = content, fingerprint(content)
-            if source:
-                proposal.source_digest, proposal.source_snapshot = (
-                    message_digest(source),
-                    review_snapshot(source),
-                )
-            proposal.review_state = ActionProposal.ReviewState.PENDING
-            proposal.save()
-            record_event(
-                run,
-                "proposal_saved",
-                f"proposal:{proposal.id}:{proposal.version}",
-                proposal_id=str(proposal.id),
-                actor_id=owner.pk,
-                version=proposal.version,
-            )
+            _new_version(proposal, owner, content, source)
     except RunBusyError:
         raise ValidationError("该审核单正在处理，请稍后再修改。") from None
     return _advance(proposal)
@@ -257,9 +302,16 @@ def save_proposal(proposal_id, owner, data):
 
 def decide_proposal(proposal_id, owner, version, decision):
     proposal = ActionProposal.objects.select_related("run").get(pk=proposal_id, run__owner=owner)
-    if decision not in {"approve", "reject", "cancel"}:
-        raise ValidationError("请选择确认、拒绝或取消。")
-    state = {"approve": "approved", "reject": "rejected", "cancel": "cancelled"}[decision]
+    # 新界面统一为“不执行”。保留旧值供历史入口兼容，不改写已有审批记录。
+    states = {
+        "approve": "approved",
+        "dismiss": "cancelled",
+        "reject": "rejected",
+        "cancel": "cancelled",
+    }
+    if decision not in states:
+        raise ValidationError("请选择确认执行或不执行此建议。")
+    state = states[decision]
     locked_run_id = proposal.run_id
     try:
         with run_lock(proposal.run_id), transaction.atomic():
@@ -275,7 +327,7 @@ def decide_proposal(proposal_id, owner, version, decision):
             previous = proposal.decisions.filter(version=proposal.version).first()
             if previous:
                 if previous.decision != state:
-                    raise ValidationError("当前版本已有决定；如需重新处理，请修改内容后重新审核。")
+                    raise ValidationError("当前版本已有决定；已结束的建议请先点击‘重新处理’。")
             else:
                 if proposal.review_state != ActionProposal.ReviewState.PENDING:
                     raise ValidationError("该版本不在待审核状态。")

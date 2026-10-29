@@ -1,76 +1,43 @@
 {% extends "email_agent/base.html" %}
+{% load presentation %}
 {% block title %}邮件详情 · 邮件助理{% endblock %}
 {% block content %}
-<section>
-  <h2>分析这封邮件</h2>
-  <p>使用{{ analysis_provider }}生成分类、摘要、候选事项和回复草稿。只分析当前邮件；相同输入会复用已有结果。</p>
-  <p class="muted">分析将把邮件文本和附件元信息发送给所选模型。日期按下方时区解释，相对日期以邮件发送时间为基准。正文使用当前已读取的缓存。</p>
-  {% if email.body_loaded %}
-    <form method="post" action="{% url 'mailbox_analyze' account.id email.id %}">
-      {% csrf_token %}
-      <div class="actions">
-        <label>{{ analysis_form.timezone_name.label }} {{ analysis_form.timezone_name }}</label>
-        <button>分析邮件</button>
-      </div>
-    </form>
-  {% else %}
-    <p>请先成功读取正文再分析。</p>
-  {% endif %}
-  {% if analyses %}
-    <h3>已有分析</h3>
-    <ul>
-      {% for analysis in analyses %}
-        <li><a href="{% url 'mail_analysis' analysis.id %}">{{ analysis.created_at|date:"Y-m-d H:i" }} · {{ analysis.category_label }}</a> · {{ analysis.run.get_status_display }} · {{ analysis.timezone_name }}</li>
-      {% endfor %}
-    </ul>
-  {% endif %}
-</section>
-<section>
-  <div class="actions">
-    <a href="{% url 'mailbox_messages' account.id %}">返回邮件检索</a>
-    {% if email.provider_thread_id %}
-      <a href="{% url 'mailbox_thread' account.id email.id %}">查看会话</a>
-    {% endif %}
+<div class="breadcrumb"><a href="{% url 'mailbox_messages' account.id %}">邮件检索</a><span>/</span><span>邮件详情</span></div>
+<div class="page-heading"><div><p class="eyebrow">READ &amp; UNDERSTAND</p><h1>邮件详情</h1><p>{{ account.email_address }}</p></div>{% if email.provider_thread_id %}<a class="button-link secondary" href="{% url 'mailbox_thread' account.id email.id %}">查看往来会话</a>{% endif %}</div>
+<div class="review-layout">
+  <div>
+    <section>
+      <div class="preview-caption"><svg class="icon"><use href="#i-mail"/></svg>原始邮件</div>
+      <h2 class="review-subject">{{ email.subject|default:"（无主题）" }}</h2>
+      <dl class="envelope-meta">
+        <div><dt>发件人</dt><dd>{{ email.sender.name }} &lt;{{ email.sender.address }}&gt;</dd></div>
+        <div><dt>收件人</dt><dd>{% for person in email.to_recipients %}{{ person.name }} &lt;{{ person.address }}&gt;{% if not forloop.last %}；{% endif %}{% empty %}未提供{% endfor %}</dd></div>
+        {% if email.cc_recipients %}<div><dt>抄送</dt><dd>{% for person in email.cc_recipients %}{{ person.name }} &lt;{{ person.address }}&gt;{% if not forloop.last %}；{% endif %}{% endfor %}</dd></div>{% endif %}
+        <div><dt>收到时间</dt><dd>{{ email.received_at|date:"Y-m-d H:i:s T" }}</dd></div>
+      </dl>
+      {% if cached %}<p class="notice">本次实时读取失败。下方仅展示已有缓存，可能与原邮箱当前内容不同。</p>{% endif %}
+      {% if email.body_truncated %}<p class="warning">正文超过当前长度限制，仅展示前一部分。请在原邮箱查看完整内容。</p>{% endif %}
+      {# 正文保持纯文本和自动转义，视觉升级不放宽邮件 HTML 的展示权限。 #}
+      {% if email.body_loaded %}<pre class="mail-body message-paper">{{ email.body_text|default:"（正文为空）" }}</pre>{% else %}<p>正文尚未读取，请恢复连接后刷新。</p>{% endif %}
+      {% if email.attachments %}
+        <details><summary>附件信息 · {{ email.attachments|length }} 项</summary><ul>{% for attachment in email.attachments %}<li>{{ attachment.name }}{% if attachment.size != None %} · {{ attachment.size }} 字节{% endif %}</li>{% endfor %}</ul><p class="muted">这里只展示附件信息，附件请在原邮箱下载。</p></details>
+      {% endif %}
+      <p class="muted">正文读取于 {{ email.body_fetched_at|date:"Y-m-d H:i:s T" }}</p>
+    </section>
   </div>
-  <h2>{{ email.subject|default:"（无主题）" }}</h2>
-  <p>发件人：{{ email.sender.name }} &lt;{{ email.sender.address }}&gt;</p>
-  <p>
-    收件人：
-    {% for person in email.to_recipients %}
-      {{ person.name }} &lt;{{ person.address }}&gt;{% if not forloop.last %}；{% endif %}
-    {% empty %}
-      未提供
-    {% endfor %}
-  </p>
-  {% if email.cc_recipients %}
-    <p>
-      抄送：
-      {% for person in email.cc_recipients %}
-        {{ person.name }} &lt;{{ person.address }}&gt;{% if not forloop.last %}；{% endif %}
-      {% endfor %}
-    </p>
-  {% endif %}
-  <p class="muted">收到：{{ email.received_at|date:"Y-m-d H:i:s T" }} · 正文读取：{{ email.body_fetched_at|date:"Y-m-d H:i:s T" }}</p>
-  {% if cached %}
-    <p class="notice">本次实时读取失败。下方仅展示已有缓存，可能与原邮箱当前内容不同。</p>
-  {% endif %}
-  {% if email.body_truncated %}
-    <p class="notice">正文超过当前长度限制，仅展示前一部分。请在原邮箱查看完整内容。</p>
-  {% endif %}
-  {# 正文是纯文本，保持 Django 自动转义，不使用 safe 过滤器。 #}
-  {% if email.body_loaded %}
-    <pre class="mail-body">{{ email.body_text|default:"（正文为空）" }}</pre>
-  {% else %}
-    <p>正文尚未读取，请恢复连接后刷新。</p>
-  {% endif %}
-  {% if email.attachments %}
-    <h3>附件信息</h3>
-    <ul>
-      {% for attachment in email.attachments %}
-        <li>{{ attachment.name }}{% if attachment.size != None %} · {{ attachment.size }} 字节{% endif %}</li>
-      {% endfor %}
-    </ul>
-    <p class="muted">本阶段展示附件元信息，附件请在原邮箱下载。</p>
-  {% endif %}
-</section>
+  <aside class="review-sidebar" aria-label="邮件分析">
+    <section>
+      <p class="eyebrow">MAIL INTELLIGENCE</p><h2>分析这封邮件</h2>
+      <p>使用{{ analysis_provider }}整理摘要、候选事项和回复草稿。</p>
+      {% if email.body_loaded %}
+        <form method="post" action="{% url 'mailbox_analyze' account.id email.id %}">{% csrf_token %}
+          <p><label for="{{ analysis_form.timezone_name.id_for_label }}">{{ analysis_form.timezone_name.label }}</label>{{ analysis_form.timezone_name }}</p>
+          <div class="decision-actions"><button>分析邮件</button></div>
+        </form>
+      {% else %}<p>请先成功读取正文再分析。</p>{% endif %}
+      <details><summary>分析范围与数据使用</summary><p>分析将把当前邮件文本和附件元信息发送给所选模型。只分析这封邮件，相同输入会复用已有结果。</p><p>日期按所选时区解释，相对日期以邮件发送时间为基准。正文使用当前读取的缓存。</p></details>
+    </section>
+    {% if analyses %}<section><h2>已有分析</h2>{% for analysis in analyses %}<div class="mail-card"><a href="{% url 'mail_analysis' analysis.id %}">{{ analysis.category_label }}</a><p><span class="status-badge" data-tone="{{ analysis.run.status|status_tone }}">{{ analysis.run.get_status_display }}</span></p><p class="muted">{{ analysis.created_at|date:"Y-m-d H:i" }} · {{ analysis.timezone_name }}</p></div>{% endfor %}</section>{% endif %}
+  </aside>
+</div>
 {% endblock %}

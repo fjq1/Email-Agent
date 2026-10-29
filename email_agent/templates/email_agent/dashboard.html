@@ -1,60 +1,32 @@
 {% extends "email_agent/base.html" %}
+{% load presentation %}
 {% block content %}
-<p class="muted">连接真实邮箱，检索邮件、分析事项并生成回复草稿</p>
+<div class="page-heading">
+  <div><p class="eyebrow">YOUR MAIL, ORGANIZED</p><h1>我的邮箱</h1><p>查看来信，整理重要事项，准备下一步回复。</p></div>
+  <a class="button-link" href="{% url 'commands' %}"><svg class="icon"><use href="#i-spark"/></svg>用指令处理邮件</a>
+</div>
 <section>
-  <div class="row">
-    <h2>我的邮箱</h2>
-    <a href="{% url 'mailbox_setup' %}">首次连接配置说明</a>
+  <div class="section-header"><h2>邮箱账户</h2><a href="{% url 'mailbox_setup' %}">连接配置说明 →</a></div>
+  <div class="grid">
+    {% for mailbox in mailboxes %}
+      <article class="card mailbox-card">
+        <div class="account-identity"><span class="provider-mark">{% if mailbox.provider == 'gmail' %}G{% else %}O{% endif %}</span><div><h3>{{ mailbox.email_address }}</h3><p class="muted">{{ mailbox.get_provider_display }}</p></div></div>
+        <div class="row"><span class="status-badge" data-tone="{{ mailbox.status|status_tone }}">{{ mailbox.get_status_display }}</span><span class="muted">{% if mailbox.can_send %}已启用发送{% else %}只读连接{% endif %}</span></div>
+        {% if mailbox.status == 'connected' %}<div class="decision-actions"><a class="button-link secondary" href="{% url 'mailbox_messages' mailbox.id %}">进入邮箱 →</a></div>{% endif %}
+        <details><summary>管理连接</summary><div class="connection-actions">
+          <form method="post" action="{% url 'mailbox_connect' mailbox.provider %}">{% csrf_token %}<input type="hidden" name="account_id" value="{{ mailbox.id }}"><button class="secondary">重新授权</button></form>
+          {% if mailbox.status != 'disconnected' %}
+            {% if not mailbox.can_send %}<form method="post" action="{% url 'mailbox_connect' mailbox.provider %}">{% csrf_token %}<input type="hidden" name="account_id" value="{{ mailbox.id }}"><input type="hidden" name="allow_send" value="1"><button class="secondary">启用发送权限</button></form>{% endif %}
+            <form method="post" action="{% url 'mailbox_disconnect' mailbox.id %}">{% csrf_token %}<button class="danger">断开连接</button></form>
+          {% endif %}
+        </div></details>
+      </article>
+    {% empty %}<div class="empty-state">还没有连接邮箱。从下方选择 Gmail 或 Outlook 开始。</div>{% endfor %}
   </div>
-  <div class="actions">
+  <div class="actions form-footer">
     {% for connection in mail_connections %}
-      <form method="post" action="{% url 'mailbox_connect' connection.name %}">
-        {% csrf_token %}
-        <button>连接 {{ connection.label }}</button>
-        {% if not connection.configured %}<span class="muted">需先配置 OAuth</span>{% endif %}
-      </form>
+      <form method="post" action="{% url 'mailbox_connect' connection.name %}">{% csrf_token %}<button class="secondary">＋ 连接 {{ connection.label }}</button>{% if not connection.configured %}<span class="muted">需配置 OAuth</span>{% endif %}</form>
     {% endfor %}
-  </div>
-  <div class="scroll">
-    <table>
-      <thead><tr><th>邮箱</th><th>状态</th><th>操作</th></tr></thead>
-      <tbody>
-        {% for mailbox in mailboxes %}
-          <tr>
-            <td>{{ mailbox.email_address }}<p class="muted">{{ mailbox.get_provider_display }}</p></td>
-            <td>{{ mailbox.get_status_display }}<p class="muted">{% if mailbox.can_send %}已授予发送权限{% else %}只读权限{% endif %}</p></td>
-            <td>
-              <div class="actions">
-                {% if mailbox.status == 'connected' %}
-                  <a href="{% url 'mailbox_messages' mailbox.id %}">检索邮件</a>
-                {% endif %}
-                <form method="post" action="{% url 'mailbox_connect' mailbox.provider %}">
-                  {% csrf_token %}
-                  <input type="hidden" name="account_id" value="{{ mailbox.id }}">
-                  <button class="secondary">重新授权</button>
-                </form>
-                {% if mailbox.status != 'disconnected' %}
-                  {% if not mailbox.can_send %}
-                    <form method="post" action="{% url 'mailbox_connect' mailbox.provider %}">
-                      {% csrf_token %}
-                      <input type="hidden" name="account_id" value="{{ mailbox.id }}">
-                      <input type="hidden" name="allow_send" value="1">
-                      <button class="secondary">启用发送</button>
-                    </form>
-                  {% endif %}
-                  <form method="post" action="{% url 'mailbox_disconnect' mailbox.id %}">
-                    {% csrf_token %}
-                    <button class="secondary">断开连接</button>
-                  </form>
-                {% endif %}
-              </div>
-            </td>
-          </tr>
-        {% empty %}
-          <tr><td colspan="3">尚未连接邮箱。先在“连接配置”中完成应用注册，再点击连接并授权。</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
   </div>
 </section>
 {# 基础设施诊断仍用于验证暂停与恢复，收起后不影响日常邮箱使用。 #}

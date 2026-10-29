@@ -31,7 +31,11 @@ def clean_zone(value):
 
 
 class CommandStartForm(forms.Form):
-    mailbox = forms.ModelChoiceField(label="本次处理的邮箱", queryset=MailboxAccount.objects.none())
+    mailbox = forms.ModelChoiceField(
+        label="本次处理的邮箱",
+        queryset=MailboxAccount.objects.none(),
+        empty_label="请选择本次使用的邮箱",
+    )
     instruction = forms.CharField(
         label="你的指令",
         max_length=2000,

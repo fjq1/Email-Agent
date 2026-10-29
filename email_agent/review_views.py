@@ -20,10 +20,12 @@ from email_agent.models import (
 from email_agent.providers.base import MailError
 from email_agent.services.reviews import (
     can_edit,
+    can_restart,
     decide_proposal,
     execution_for,
     form_for,
     prepare_proposal,
+    restart_proposal,
     resume_proposal,
     save_proposal,
     update_task_status,
@@ -89,6 +91,7 @@ def detail(request, proposal_id):
             "proposal": proposal,
             "execution": execution,
             "editable": can_edit(proposal),
+            "restartable": can_restart(proposal),
             "show_retry": retryable
             and proposal.run.status
             in {AgentRun.Status.FAILED, AgentRun.Status.RUNNING, AgentRun.Status.PENDING},
@@ -112,7 +115,7 @@ def detail(request, proposal_id):
 def edit(request, proposal_id):
     proposal = owned_proposal(request, proposal_id)
     if not can_edit(proposal):
-        messages.error(request, "已执行或待核对的动作不能修改。")
+        messages.error(request, "已结束的建议请先点击‘重新处理’；已执行或待核对的动作不能修改。")
         return redirect("action_review", proposal_id=proposal.id)
     form = form_for(proposal, request.user, request.POST if request.method == "POST" else None)
     if request.method == "POST" and form.is_valid():
@@ -151,6 +154,20 @@ def resume(request, proposal_id):
         resume_proposal(proposal_id, request.user)
     except ValidationError as exc:
         show_error(request, exc)
+    return redirect("action_review", proposal_id=proposal_id)
+
+
+@login_required
+@require_POST
+@never_cache
+def restart(request, proposal_id):
+    owned_proposal(request, proposal_id)
+    try:
+        restart_proposal(proposal_id, request.user, request.POST.get("version"))
+    except (ValidationError, MailError) as exc:
+        show_error(request, exc)
+    else:
+        messages.success(request, "已重新开启待审核的新版本，请检查或修改内容，再确认执行。")
     return redirect("action_review", proposal_id=proposal_id)
 
 
