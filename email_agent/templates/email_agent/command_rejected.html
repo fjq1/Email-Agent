@@ -1,0 +1,17 @@
+{% extends "email_agent/base.html" %}
+{% load presentation %}
+{% block title %}处理结果 · 邮件助理{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><p class="eyebrow">PROCESSING RESULT</p><h1>处理结果</h1></div>
+  <span class="status-badge" data-tone="{{ plan.status|status_tone }}">{{ plan.get_status_display }}</span>
+</div>
+<section aria-labelledby="result-heading">
+  <h2 id="result-heading">本次处理失败</h2>
+  <p class="muted">助理回复</p>
+  {# 仅显示模型给出的拒绝原因，保持自动转义，不展示内部计划字段。 #}
+  <pre class="mail-body">{{ refusal_reply }}</pre>
+  <p class="notice error" role="alert">本次指令已结束。请补充完整信息，重新下达新指令。</p>
+  <a class="button-link" href="{% url 'commands' %}">重新下达新指令</a>
+</section>
+{% endblock %}

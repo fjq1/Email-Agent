@@ -36,12 +36,26 @@ SCAN_LIMIT = 30
 CHUNK_SIZE = 2
 
 
+def reject_plan(plan):
+    """模型明确拒绝的指令直接结束，原因保留在 spec，不允许改成其他操作继续执行。"""
+    plan.native_query = ""
+    set_status(plan, CommandPlan.Status.CANCELLED)
+    record_event(
+        plan.run, "command_rejected", f"command-rejected:{plan.id}", actor_id=plan.run.owner_id
+    )
+    return plan
+
+
 @contextmanager
 def locked_plan(plan_id, owner):
     plan = CommandPlan.objects.select_related("run", "mailbox").get(pk=plan_id, run__owner=owner)
     try:
         with run_lock(plan.run_id):
             plan.refresh_from_db()
+            if plan.spec.get("action") == "unsupported":
+                if plan.status != CommandPlan.Status.CANCELLED:
+                    reject_plan(plan)
+                raise ValidationError("本次指令未能处理，已取消后续处理，请重新下达新指令。")
             if plan.status == CommandPlan.Status.CANCELLED:
                 raise ValidationError("此指令已取消；可以新建另一份计划。")
             yield plan
@@ -87,6 +101,9 @@ def create_command(owner, *, mailbox, instruction, timezone_name="", submission_
                 model_name=settings.MODEL_PROVIDERS[settings.MAIL_ANALYSIS_PROVIDER]["model"],
             )
             record_event(run, "command_created", f"command:{plan.id}", mailbox_id=str(mailbox.id))
+    # 同一提交的拒绝结果直接复用，不能因重复点击再次调用模型或重新开启。
+    if plan.spec.get("action") == "unsupported":
+        return plan
     plan = parse_plan(plan.id, owner)
     if created and plan.spec.get("action") == "compose_email":
         return compose_plan(plan.id, owner, plan.version)
@@ -151,6 +168,8 @@ def parse_plan(plan_id, owner):
             )
             spec = CommandSpec.model_validate(spec).model_dump(mode="json")
             plan.spec, plan.usage = spec, usage
+            if spec["action"] == "unsupported":
+                return reject_plan(plan)
             plan.native_query = build_query(
                 plan.mailbox.provider, spec["filters"], plan.timezone_name
             )

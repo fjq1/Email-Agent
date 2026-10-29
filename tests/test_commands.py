@@ -559,3 +559,75 @@ def test_individual_unknown_result_keeps_plan_incomplete(
     sync_proposal_plans(proposal)
     plan.refresh_from_db()
     assert plan.status == "cancelled" and len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "instruction,reason",
+    [
+        (
+            "向我妈妈发一封邮件，内容为表示感谢。",
+            "缺少明确的收件邮箱地址，请在新指令中提供完整地址。",
+        ),
+        ("向 recipient@example.com 发一封邮件。", "缺少写信目的或主要内容，请在新指令中补充。"),
+    ],
+)
+def test_refused_command_shows_only_result_and_cannot_be_edited(
+    client, owner, mailbox, model_api, mail_api, instruction, reason
+):
+    """拒绝后直接结束，旧编辑链接和伪造操作都不能重新开启；正常计划仍可编辑。"""
+    model_api[0].update(
+        action="unsupported",
+        explanation="内部解析：unsupported / compose_email",
+        clarifications=[reason],
+    )
+    client.force_login(owner)
+    data = {"mailbox": mailbox.id, "instruction": instruction, "submission_key": uuid.uuid4()}
+    response = client.post(reverse("commands"), data, follow=True)
+    plan = CommandPlan.objects.get()
+    assert response.status_code == 200 and response.redirect_chain[-1][0] == reverse(
+        "command_detail", args=[plan.id]
+    )
+    text = response.content.decode()
+    assert reason in text and "本次处理失败" in text and "重新下达新指令" in text
+    assert "已取消后续处理" in text and "内部解析" not in text
+    for label in ("修改检索条件", "查看平台检索表达式", "按此范围检索", "本计划已冻结的默认偏好"):
+        assert label not in text
+    assert plan.status == "cancelled" and plan.run.status == AgentRun.Status.REJECTED
+    assert client.get(reverse("commands")).context["plans"][0].status == "cancelled"
+    assert client.get(reverse("command_edit", args=[plan.id])).status_code == 302
+    assert client.post(reverse("command_edit", args=[plan.id]), {"version": 1}).status_code == 302
+    for operation in ("parse", "search", "compose", "process", "refresh", "approve", "preference"):
+        response = client.post(
+            reverse("command_act", args=[plan.id, operation]), {"version": 1}, follow=True
+        )
+        assert response.status_code == 200 and "本次处理失败" in response.content.decode()
+    assert client.post(reverse("commands"), data).status_code == 302
+    assert len(model_api[1]) == 1 and not mail_api
+    assert not ActionProposal.objects.exists() and not UserPreference.objects.exists()
+
+    # 旧版留下的待核对拒绝记录，同样使用结果页；服务层拒绝直接修改并修正其状态。
+    CommandPlan.objects.filter(pk=plan.id).update(status="preview")
+    AgentRun.objects.filter(pk=plan.run_id).update(status=AgentRun.Status.WAITING_REVIEW)
+    assert (
+        client.get(reverse("command_detail", args=[plan.id])).context["plan"].status == "cancelled"
+    )
+    plan.refresh_from_db()
+    assert plan.status == "preview"  # GET 仍然只展示。
+    with pytest.raises(ValidationError, match="重新下达新指令"):
+        commands.save_plan(plan.id, owner, {})
+    plan.refresh_from_db()
+    assert plan.status == "cancelled"
+
+    model_api[0].update(action="search", explanation="查找最近的邮件。", clarifications=[])
+    response = client.post(
+        reverse("commands"),
+        {
+            "mailbox": mailbox.id,
+            "instruction": "查找最近的邮件。",
+            "submission_key": uuid.uuid4(),
+        },
+        follow=True,
+    )
+    assert "修改检索条件与本次回复方式" in response.content.decode()
+    supported = CommandPlan.objects.exclude(pk=plan.id).get()
+    assert client.get(reverse("command_edit", args=[supported.id])).status_code == 200

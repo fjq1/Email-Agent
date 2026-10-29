@@ -31,6 +31,8 @@ def set_status(plan, status, error=""):
 
 def derived_status(plan):
     """有批量决定时仅汇总被冻结的动作版本；否则跟随单项审核的当前版本。"""
+    if plan.spec.get("action") == "unsupported":
+        return CommandPlan.Status.CANCELLED  # 旧版遗留的拒绝计划也不再显示为待核对。
     if plan.status == CommandPlan.Status.CANCELLED:
         return plan.status  # 用户明确取消的是指令后续处理，不撤销单项操作。
     actions = list(plan.actions.all())

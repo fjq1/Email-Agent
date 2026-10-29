@@ -71,6 +71,18 @@ def owned_plan(request, plan_id):
 @never_cache
 def detail(request, plan_id):
     plan = owned_plan(request, plan_id)
+    if plan.spec.get("action") == "unsupported":
+        # 拒绝结果单独展示，既不呈现无关检索条件，也不暴露后续修改和执行入口。
+        reasons = plan.spec.get("clarifications") or [plan.spec.get("explanation", "")]
+        reply = "\n".join(dict.fromkeys(reason.strip() for reason in reasons if reason.strip()))
+        return render(
+            request,
+            "email_agent/command_rejected.html",
+            {
+                "plan": display_status(plan),
+                "refusal_reply": reply or "当前信息不足或请求暂不支持，本次未能继续处理。",
+            },
+        )
     prefetch_related_objects(
         [plan], "items", "actions__proposal__executions", "actions__proposal__run"
     )
@@ -150,6 +162,8 @@ def detail(request, plan_id):
 @never_cache
 def edit(request, plan_id):
     plan = owned_plan(request, plan_id)
+    if plan.spec.get("action") == "unsupported":
+        return redirect("command_detail", plan_id=plan.id)
     form = CommandSpecForm(
         request.POST if request.method == "POST" else None, initial=commands.plan_initial(plan)
     )
@@ -167,7 +181,9 @@ def edit(request, plan_id):
 @require_POST
 @never_cache
 def act(request, plan_id, operation):
-    owned_plan(request, plan_id)
+    plan = owned_plan(request, plan_id)
+    if plan.spec.get("action") == "unsupported":
+        return redirect("command_detail", plan_id=plan.id)
     version = request.POST.get("version")
     try:
         if operation == "parse":
