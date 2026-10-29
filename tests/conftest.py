@@ -65,10 +65,12 @@ def mail_http(monkeypatch):
     original = httpx.Client
 
     def install(handler):
-        def client(*args, **kwargs):
-            kwargs["transport"] = httpx.MockTransport(handler)
-            return original(*args, **kwargs)
+        # 保留 Client 的类身份，兼容模型 SDK 对旧版 HTTP 客户端的 isinstance 检查。
+        class IsolatedClient(original):
+            def __init__(self, *args, **kwargs):
+                kwargs["transport"] = httpx.MockTransport(handler)
+                super().__init__(*args, **kwargs)
 
-        monkeypatch.setattr("email_agent.providers.base.httpx.Client", client)
+        monkeypatch.setattr("email_agent.providers.base.httpx.Client", IsolatedClient)
 
     return install

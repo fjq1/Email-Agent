@@ -244,6 +244,7 @@ class GmailProvider(MailProvider):
             cc_recipients=addresses(headers.get("cc")),
             reply_to=addresses(headers.get("reply-to")),
             references=headers.get("references", ""),
+            is_read="UNREAD" not in data["labelIds"] if "labelIds" in data else None,
             received_at=milliseconds_date(data.get("internalDate")),
             sent_at=message_date(headers.get("date")),
             snippet=html_to_text(data.get("snippet", "")),

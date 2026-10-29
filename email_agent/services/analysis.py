@@ -15,6 +15,7 @@ from email_agent.intelligence.understanding import PROMPT_VERSION
 from email_agent.models import AgentRun, AnalysisResult, EmailMessage, TaskCandidate, TaskSource
 from email_agent.services.audit import record_event
 from email_agent.services.mailboxes import read_message
+from email_agent.services.preferences import effective_preferences
 from email_agent.workflows.locking import RunBusyError, RunFailedError
 
 
@@ -40,12 +41,12 @@ def analysis_input_key(message_id, snapshot, provider, config):
     )
 
 
-def source_snapshot(message, timezone_name):
+def source_snapshot(message, timezone_name, *, preferences=None, processing_options=None):
     """只发送当前邮件，不自动扩大到整个邮箱或会话；附件仅包含元信息。"""
     limit = settings.MAIL_ANALYSIS_MAX_CHARS
     if limit <= 0:
         raise ValidationError("MAIL_ANALYSIS_MAX_CHARS 必须大于 0。")
-    return {
+    result = {
         "subject": message.subject,
         "current_mailbox_address": message.mailbox.email_address,
         "sender": message.sender,
@@ -58,11 +59,30 @@ def source_snapshot(message, timezone_name):
         "truncated": message.body_truncated or len(message.body_text) > limit,
         "attachments": message.attachments,
     }
+    preferences = (
+        preferences
+        if preferences is not None
+        else effective_preferences(message.mailbox.owner, message.mailbox)
+    )
+    # 没有偏好时不加入空字段；同一提示词版本下，相同快照仍可复用分析。
+    if preferences:
+        result["confirmed_preferences"] = preferences
+    if processing_options:
+        result["processing_request"] = processing_options
+    return result
 
 
-def analyze_message(message_id, owner, *, timezone_name=None):
+def analyze_message(
+    message_id, owner, *, timezone_name=None, preferences=None, processing_options=None
+):
     """在事务外调用模型。已有正文可分析缓存，并在结果中保留准确的输入快照。"""
-    zone = timezone_name or settings.TIME_ZONE
+    message = EmailMessage.objects.select_related("mailbox").get(
+        pk=message_id, mailbox__owner=owner
+    )
+    preferences = (
+        preferences if preferences is not None else effective_preferences(owner, message.mailbox)
+    )
+    zone = timezone_name or preferences.get("timezone_name", {}).get("value") or settings.TIME_ZONE
     try:
         ZoneInfo(zone)
     except (ValueError, ZoneInfoNotFoundError):
@@ -73,15 +93,14 @@ def analyze_message(message_id, owner, *, timezone_name=None):
     config = settings.MODEL_PROVIDERS.get(provider)
     if not config:
         raise ValidationError("MAIL_ANALYSIS_PROVIDER 必须是 bailian、deepseek 或 openai。")
-    message = EmailMessage.objects.select_related("mailbox").get(
-        pk=message_id, mailbox__owner=owner
-    )
     if not message.body_loaded:
         message = read_message(message.mailbox_id, owner, message.id)
     with transaction.atomic():
         # 锁住当前邮件，串行处理重复提交；锁在模型调用前释放。
         message = EmailMessage.objects.select_for_update().get(pk=message.id, mailbox__owner=owner)
-        snapshot = source_snapshot(message, zone)
+        snapshot = source_snapshot(
+            message, zone, preferences=preferences, processing_options=processing_options
+        )
         key = analysis_input_key(message.id, snapshot, provider, config)
         analysis = AnalysisResult.objects.filter(input_key=key).first()
         if analysis is None:

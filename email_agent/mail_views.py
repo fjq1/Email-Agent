@@ -20,6 +20,7 @@ from email_agent.services.oauth import (
     disconnect_mailbox,
     finish_connection,
 )
+from email_agent.services.preferences import effective_preferences
 
 
 @login_required
@@ -142,7 +143,14 @@ def message_detail(request, account_id, message_id):
             "account": account,
             "email": email,
             "cached": cached,
-            "analysis_form": MailAnalysisForm(initial={"timezone_name": settings.TIME_ZONE}),
+            "analysis_form": MailAnalysisForm(
+                initial={
+                    "timezone_name": effective_preferences(request.user, account)
+                    .get("timezone_name", {})
+                    .get("value")
+                    or settings.TIME_ZONE
+                }
+            ),
             "analysis_provider": PROVIDER_LABELS.get(
                 settings.MAIL_ANALYSIS_PROVIDER, settings.MAIL_ANALYSIS_PROVIDER
             ),

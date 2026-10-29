@@ -8,11 +8,13 @@ from email_agent.models import (
     AnalysisResult,
     ApprovalDecision,
     AuditEvent,
+    CommandPlan,
     EmailMessage,
     MailboxAccount,
     OperationRecord,
     TaskCandidate,
     TaskItem,
+    UserPreference,
 )
 
 
@@ -92,3 +94,13 @@ class ActionAttemptAdmin(ReadOnlyAdmin):
 @admin.register(TaskItem)
 class TaskItemAdmin(ReadOnlyAdmin):
     list_display = ("title", "owner", "status", "due_date", "created_at")
+
+
+@admin.register(CommandPlan)
+class CommandPlanAdmin(ReadOnlyAdmin):
+    list_display = ("id", "mailbox", "status", "version", "created_at")
+
+
+@admin.register(UserPreference)
+class UserPreferenceAdmin(ReadOnlyAdmin):
+    list_display = ("owner", "mailbox", "key", "enabled", "version", "confirmed_at")

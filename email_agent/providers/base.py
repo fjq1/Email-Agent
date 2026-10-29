@@ -50,6 +50,7 @@ class MessageData:
     cc_recipients: list = field(default_factory=list)
     reply_to: list = field(default_factory=list)
     references: str = ""
+    is_read: bool | None = None
     received_at: datetime | None = None
     sent_at: datetime | None = None
     snippet: str = ""

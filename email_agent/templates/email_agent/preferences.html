@@ -1,0 +1,35 @@
+{% extends "email_agent/base.html" %}
+{% block title %}我的偏好 · 邮件助理{% endblock %}
+{% block content %}
+<section>
+  <h2>{% if item %}修改偏好{% else %}确认保存偏好{% endif %}</h2>
+  <p>启用的单邮箱偏好优先于全局默认值。停用后回退到全局；修改只影响之后生成的计划和分析，已保存草稿及审批内容保留。</p>
+  {% if not item %}
+    <form method="get" class="actions">
+      <label>偏好类型 <select name="key">{% for value,label in key_choices %}<option value="{{ value }}" {% if selected_key == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <button class="secondary">切换类型</button>
+    </form>
+  {% endif %}
+  <form method="post">{% csrf_token %}{{ form.as_p }}<button>确认保存并启用</button></form>
+  {% if item %}<p><a href="{% url 'preferences' %}">返回偏好列表 / 新建</a></p>{% endif %}
+  <p class="muted">偏好不会开启自动发送或代替人工审核；邮件签名按确认后的原文附加。</p>
+</section>
+<section>
+  <h2>已确认的偏好</h2>
+  {% for preference in preferences %}
+    <article class="mail-card">
+      <h3>{{ preference.get_key_display }} · {% if preference.mailbox %}{{ preference.mailbox.email_address }}{% else %}全局默认{% endif %}</h3>
+      <pre class="mail-body">{{ preference.value_label }}</pre>
+      <p>{% if preference.enabled %}已启用{% else %}已停用{% endif %} · 第 {{ preference.version }} 版 · {{ preference.confirmed_at|date:"Y-m-d H:i T" }} 确认</p>
+      <div class="actions">
+        <a href="{% url 'preference_edit' preference.id %}">修改</a>
+        <form method="post" action="{% url 'preference_action' preference.id %}">
+          {% csrf_token %}<input type="hidden" name="version" value="{{ preference.version }}">
+          <button class="secondary" name="operation" value="toggle">{% if preference.enabled %}停用{% else %}启用{% endif %}</button>
+          <button class="secondary" name="operation" value="delete">删除此偏好</button>
+        </form>
+      </div>
+    </article>
+  {% empty %}<p>还没有保存任何偏好。系统不会从你的修改或邮件正文中自动学习并保存。</p>{% endfor %}
+</section>
+{% endblock %}

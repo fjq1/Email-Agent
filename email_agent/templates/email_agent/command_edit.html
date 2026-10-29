@@ -1,0 +1,10 @@
+{% extends "email_agent/base.html" %}
+{% block title %}修改指令计划 · 邮件助理{% endblock %}
+{% block content %}
+<section>
+  <a href="{% url 'command_detail' plan.id %}">返回计划</a>
+  <h2>核对检索范围与本次处理方式</h2>
+  <p>本次邮箱固定为 {{ plan.mailbox.email_address }}。开始分析后范围会锁定；需要改范围时新建计划。</p>
+  <form method="post">{% csrf_token %}{{ form.as_p }}<button>保存计划，返回预览</button></form>
+</section>
+{% endblock %}

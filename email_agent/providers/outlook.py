@@ -11,7 +11,7 @@ from .config import OUTLOOK_SCOPES, mail_scopes, provider_config
 from .parsing import bounded_text, html_to_text, message_date
 
 API = "https://graph.microsoft.com/v1.0"
-SUMMARY_FIELDS = "id,conversationId,internetMessageId,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,sentDateTime,bodyPreview,hasAttachments"
+SUMMARY_FIELDS = "id,conversationId,internetMessageId,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,sentDateTime,bodyPreview,hasAttachments,isRead"
 
 
 class OutlookProvider(MailProvider):
@@ -147,13 +147,13 @@ class OutlookProvider(MailProvider):
         )
 
     @staticmethod
-    def _next_url(cursor):
+    def _next_url(cursor, expected_path="/v1.0/me/messages"):
         parsed = urlsplit(cursor)
         # nextLink 必须原样使用，但携带授权头前先限定官方域名和邮件资源路径。
         if (
             parsed.scheme != "https"
             or parsed.netloc != "graph.microsoft.com"
-            or parsed.path != "/v1.0/me/messages"
+            or parsed.path != expected_path
             or parsed.fragment
         ):
             raise MailError(
@@ -162,15 +162,24 @@ class OutlookProvider(MailProvider):
         return cursor
 
     def search(self, token, query, page_size, cursor=""):
+        return self.search_folder(token, query, page_size, cursor, "all")
+
+    def search_folder(self, token, query, page_size, cursor, folder):
+        paths = {
+            "all": "/v1.0/me/messages",
+            "inbox": "/v1.0/me/mailFolders/inbox/messages",
+            "sent": "/v1.0/me/mailFolders/sentitems/messages",
+        }
+        path = paths[folder]
         if cursor:
-            page = self.get_json(token, self._next_url(cursor))
+            page = self.get_json(token, self._next_url(cursor, path))
         else:
             params = {"$select": SUMMARY_FIELDS, "$top": page_size}
             if query:
                 params["$search"] = json.dumps(query, ensure_ascii=False)
             else:
                 params["$orderby"] = "receivedDateTime desc"
-            page = self.get_json(token, f"{API}/me/messages", params)
+            page = self.get_json(token, f"https://graph.microsoft.com{path}", params)
         return MessagePage(
             [self._message(item, full=False) for item in page.get("value", [])],
             page.get("@odata.nextLink", ""),
@@ -235,6 +244,7 @@ class OutlookProvider(MailProvider):
             to_recipients=[address(item) for item in data.get("toRecipients") or []],
             cc_recipients=[address(item) for item in data.get("ccRecipients") or []],
             reply_to=[address(item) for item in data.get("replyTo") or []],
+            is_read=data.get("isRead") if isinstance(data.get("isRead"), bool) else None,
             received_at=message_date(data.get("receivedDateTime")),
             sent_at=message_date(data.get("sentDateTime")),
             snippet=data.get("bodyPreview") or "",

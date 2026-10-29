@@ -4,7 +4,7 @@ from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import path
 
-from email_agent import analysis_views, mail_views, review_views, views
+from email_agent import analysis_views, command_views, mail_views, review_views, views
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -21,6 +21,17 @@ urlpatterns = [
     path("probes/<uuid:run_id>/review/", views.review_probe, name="review_probe"),
     path("probes/<uuid:run_id>/resume/", views.resume_run, name="resume_run"),
     path("mailboxes/setup/", mail_views.setup, name="mailbox_setup"),
+    path("commands/", command_views.index, name="commands"),
+    path("commands/<uuid:plan_id>/", command_views.detail, name="command_detail"),
+    path("commands/<uuid:plan_id>/edit/", command_views.edit, name="command_edit"),
+    path("commands/<uuid:plan_id>/<str:operation>/", command_views.act, name="command_act"),
+    path("preferences/", command_views.preferences, name="preferences"),
+    path("preferences/<uuid:preference_id>/", command_views.preferences, name="preference_edit"),
+    path(
+        "preferences/<uuid:preference_id>/action/",
+        command_views.preference_action,
+        name="preference_action",
+    ),
     path("analyses/<uuid:analysis_id>/", analysis_views.detail, name="mail_analysis"),
     path("analyses/<uuid:analysis_id>/retry/", analysis_views.retry, name="mail_analysis_retry"),
     path("candidates/", analysis_views.candidate_list, name="task_candidates"),

@@ -191,6 +191,23 @@ def can_edit(proposal):
     )
 
 
+def check_approvable(proposal, owner):
+    """单项和批量审核共用批准前校验，批量入口不另开权限捷径。"""
+    if proposal.run.owner_id != owner.pk:
+        raise ActionProposal.DoesNotExist
+    if fingerprint(proposal.content) != proposal.content_hash:
+        raise ValidationError("保存内容的摘要不符，请重新保存后审核。")
+    initial = dict(proposal.content, version=proposal.version)
+    if proposal.kind == ActionProposal.Kind.REPLY:
+        initial.update(to=", ".join(initial["to"]), cc=", ".join(initial["cc"]))
+        if "【待确认" in initial["body"] or "【待确认" in initial["subject"]:
+            raise ValidationError("草稿仍包含【待确认】占位内容，请修改后再发送。")
+        account = proposal.analysis.message.mailbox
+        if not account.can_send or account.status != "connected":
+            raise ValidationError("请先为该邮箱启用发送权限，再确认发送。")
+    validate_form(proposal, owner, initial)
+
+
 def save_proposal(proposal_id, owner, data):
     proposal = ActionProposal.objects.select_related("run", "analysis__message__mailbox").get(
         pk=proposal_id, run__owner=owner
@@ -265,15 +282,7 @@ def decide_proposal(proposal_id, owner, version, decision):
                 if fingerprint(proposal.content) != proposal.content_hash:
                     raise ValidationError("保存内容的摘要不符，请重新保存后审核。")
                 if decision == "approve":
-                    initial = dict(proposal.content, version=proposal.version)
-                    if proposal.kind == ActionProposal.Kind.REPLY:
-                        initial.update(to=", ".join(initial["to"]), cc=", ".join(initial["cc"]))
-                        if "【待确认" in initial["body"] or "【待确认" in initial["subject"]:
-                            raise ValidationError("草稿仍包含【待确认】占位内容，请修改后再发送。")
-                        account = proposal.analysis.message.mailbox
-                        if not account.can_send or account.status != "connected":
-                            raise ValidationError("请先为该邮箱启用发送权限，再确认发送。")
-                    validate_form(proposal, owner, initial)
+                    check_approvable(proposal, owner)
                 ApprovalDecision.objects.create(
                     proposal=proposal,
                     run=proposal.run,

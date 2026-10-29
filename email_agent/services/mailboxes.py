@@ -149,6 +149,8 @@ def _store_messages(account, owner, data):
                     body_truncated=item.body_truncated,
                     body_fetched_at=timezone.now(),
                 )
+            if item.is_read is not None:
+                values["is_read"] = item.is_read
             if item.attachments is not None:
                 values["attachments"] = item.attachments
             message, _ = EmailMessage.objects.update_or_create(
@@ -158,12 +160,21 @@ def _store_messages(account, owner, data):
     return stored
 
 
-def search_messages(account_id, owner, query="", page_size=10, cursor=""):
+def search_messages(account_id, owner, query="", page_size=10, cursor="", *, folder="all"):
     account = MailboxAccount.objects.get(pk=account_id, owner=owner)
     if not 1 <= page_size <= 20 or len(query) > 500:
         raise MailError("请使用最多 500 字符的查询，每页最多 20 封邮件。", "invalid_query")
-    context = _cursor_context(account, owner, "search", query, page_size)
-    page = _read(account, owner, "search", query, page_size, _decode_cursor(cursor, context))
+    if folder not in {"all", "inbox", "sent"}:
+        raise MailError("无效的邮箱文件夹。", "invalid_query")
+    context = _cursor_context(
+        account, owner, "search" if folder == "all" else f"search:{folder}", query, page_size
+    )
+    native_cursor = _decode_cursor(cursor, context)
+    if account.provider == "outlook" and folder != "all":
+        page = _read(account, owner, "search_folder", query, page_size, native_cursor, folder)
+    else:
+        native_query = f"in:{folder} {query}".strip() if folder != "all" else query
+        page = _read(account, owner, "search", native_query, page_size, native_cursor)
     return _store_messages(account, owner, page.messages), _encode_cursor(page.next_cursor, context)
 
 

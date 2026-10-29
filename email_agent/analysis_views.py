@@ -12,6 +12,7 @@ from email_agent.forms import MailAnalysisForm
 from email_agent.models import ActionProposal, AgentRun, AnalysisResult, EmailMessage, TaskCandidate
 from email_agent.providers.base import MailError
 from email_agent.services.analysis import analyze_message, resume_analysis
+from email_agent.services.preferences import describe_preferences, display_preference
 
 
 @login_required
@@ -61,6 +62,14 @@ def detail(request, analysis_id):
         "email_agent/analysis_detail.html",
         {
             "analysis": analysis,
+            "preference_display": describe_preferences(
+                analysis.source_snapshot.get("confirmed_preferences", {})
+            ),
+            "request_style": [
+                display_preference(key, value)
+                for key, value in analysis.source_snapshot.get("processing_request", {}).items()
+                if key in {"reply_language", "reply_tone"} and value
+            ],
             "task_sources": task_sources,
             "reply_proposal": ActionProposal.objects.filter(
                 source_key=f"reply:{analysis.message_id}", run__owner=request.user

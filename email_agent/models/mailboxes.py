@@ -85,6 +85,7 @@ class EmailMessage(TimestampedModel):
     snippet = models.TextField("正文预览", blank=True)
     body_text = models.TextField("纯文本正文", blank=True)
     body_loaded = models.BooleanField("正文已读取", default=False)
+    is_read = models.BooleanField("是否已读", null=True, blank=True)
     body_truncated = models.BooleanField("正文被截断", default=False)
     body_fetched_at = models.DateTimeField("正文读取时间", null=True, blank=True)
     attachments = models.JSONField("附件元信息", default=list)

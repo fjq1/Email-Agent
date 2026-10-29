@@ -1,0 +1,106 @@
+{% extends "email_agent/base.html" %}
+{% block title %}指令计划 · 邮件助理{% endblock %}
+{% block content %}
+<section>
+  <a href="{% url 'commands' %}">返回指令处理</a>
+  <h2>{{ plan.get_status_display }} · 第 {{ plan.version }} 版</h2>
+  <blockquote>{{ plan.instruction }}</blockquote>
+  <p>本次邮箱：{{ plan.mailbox.email_address }} · {{ plan.mailbox.get_provider_display }} · 时区 {{ plan.timezone_name }}</p>
+  {% if plan.error_message %}<p class="warning">{{ plan.error_message }}</p>{% endif %}
+  {% if plan.spec %}
+    <p>处理目标：{{ action_label }}。{{ plan.spec.explanation }}</p>
+    <p>本次回复方式：{% for item in request_style %}{{ item.label }}：{{ item.display_value }}{% if not forloop.last %}；{% endif %}{% empty %}沿用已确认偏好；没有偏好时跟随来信语言。{% endfor %}</p>
+    <p>范围：{% if plan.spec.filters.folder == 'inbox' %}收件箱{% elif plan.spec.filters.folder == 'sent' %}已发送{% else %}服务商默认全邮箱范围{% endif %} · 最多 {{ plan.spec.limit }} 封</p>
+    <p>收到日期：{{ plan.spec.filters.date_from|default:"不限" }} 至 {{ plan.spec.filters.date_to|default:"不限" }}（含结束日）</p>
+    <p>发件人：{{ plan.spec.filters.sender|default:"不限" }} · 收件人：{{ plan.spec.filters.recipient|default:"不限" }} · 主题：{{ plan.spec.filters.subject|default:"不限" }}</p>
+    <p>关键词：{{ plan.spec.filters.keywords|join:"、"|default:"不限" }} · {% if plan.spec.filters.unread == True %}仅未读{% elif plan.spec.filters.unread == False %}仅已读{% else %}不限已读状态{% endif %}</p>
+    {% if plan.spec.clarifications %}<ul class="warning">{% for text in plan.spec.clarifications %}<li>{{ text }}</li>{% endfor %}</ul>{% endif %}
+    <details><summary>查看平台检索表达式</summary><code>{{ plan.native_query|default:"无额外关键词" }}</code><p class="muted">文件夹另行限定；日期和已读状态也会按邮件元数据复核。服务商分词和别名搜索可能不同。</p></details>
+    {% if allow_edit %}<p><a href="{% url 'command_edit' plan.id %}">修改检索条件与本次回复方式</a></p>{% endif %}
+    {% if not plan.searched_at and plan.status != 'cancelled' and plan.spec.action != 'preference_only' and plan.spec.action != 'unsupported' %}
+      <form method="post" action="{% url 'command_act' plan.id 'search' %}">{% csrf_token %}<input type="hidden" name="version" value="{{ plan.version }}"><button>按此范围检索</button></form>
+    {% endif %}
+  {% elif plan.status != 'cancelled' %}
+    <form method="post" action="{% url 'command_act' plan.id 'parse' %}">{% csrf_token %}<button>重试解析指令</button></form>
+  {% endif %}
+  {% if plan.preference_snapshot %}
+    <details><summary>本计划已冻结的默认偏好</summary><ul>{% for item in preference_display %}<li>{{ item.label }}：{{ item.display_value }} · 第 {{ item.version }} 版</li>{% endfor %}</ul><p class="muted">本次指令临时指定的语言、风格优先；后续修改偏好请新建计划使用。</p></details>
+  {% endif %}
+  {% if plan.status != 'cancelled' and plan.status != 'completed' %}
+    <form method="post" action="{% url 'command_act' plan.id 'cancel' %}">{% csrf_token %}<input type="hidden" name="version" value="{{ plan.version }}"><button class="secondary">取消本指令的后续处理</button></form>
+  {% endif %}
+</section>
+{% if suggestions %}
+<section>
+  <h2>是否保存以下偏好</h2>
+  <p>解析指令不会自动保存。确认后仅对 {{ plan.mailbox.email_address }} 生效；全局偏好可在“我的偏好”中设置。</p>
+  {% for suggestion in suggestions %}
+    <article class="mail-card">
+      <p>{{ suggestion.label }}：{{ suggestion.display_value }}</p><blockquote>{{ suggestion.evidence }}</blockquote>
+      {% if suggestion.confirmed %}<p class="badge">已明确确认并保存。</p>{% elif plan.status != 'cancelled' %}
+        <form method="post" action="{% url 'command_act' plan.id 'preference' %}">
+          {% csrf_token %}<input type="hidden" name="version" value="{{ plan.version }}"><input type="hidden" name="index" value="{{ suggestion.index }}"><input type="hidden" name="expected_version" value="{{ suggestion.expected_version }}">
+          <button class="secondary">确认保存此邮箱的这项偏好</button>
+        </form>
+      {% endif %}
+    </article>
+  {% endfor %}
+</section>
+{% endif %}
+{% if plan.searched_at %}
+<section>
+  <h2>实际检索结果与分析进度</h2>
+  <p>本次检查了 {{ plan.scanned }} 封，扫描上限 {{ scan_limit }} 封，保留 {{ items|length }} 封。{% if plan.has_more %}<strong class="warning">可能还有其他匹配，当前不是全量结果，请缩小范围后另建计划。</strong>{% endif %}</p>
+  <p class="muted">Gmail 默认不含垃圾邮件与回收站；Outlook 全邮箱范围可能含已删除文件夹。搜索排序与覆盖范围由服务商决定。</p>
+  <form method="post" action="{% url 'command_act' plan.id 'process' %}">
+    {% csrf_token %}<input type="hidden" name="version" value="{{ plan.version }}">
+    {% for item in items %}
+      <article class="mail-card">
+        {% if not plan.selection_locked_at and plan.spec.action != 'search' and plan.status != 'cancelled' %}<label><input type="checkbox" name="item_ids" value="{{ item.id }}" checked> 选择分析</label>{% endif %}
+        <h3><a href="{% url 'mailbox_message' plan.mailbox_id item.message_id %}">{{ item.message.subject|default:"（无主题）" }}</a></h3>
+        <p class="muted">{{ item.message.sender.address }} · {{ item.message.received_at|date:"Y-m-d H:i T" }} · {{ item.get_status_display }}</p>
+        {% if item.error_message %}<p class="warning">{{ item.error_message }}</p>{% endif %}
+        {% if item.analysis %}
+          <p><a href="{% url 'mail_analysis' item.analysis_id %}">查看分析、证据与本次新草稿</a></p>
+          <ul>{% for finding in item.analysis.payload.summary %}<li>{{ finding.text }}{% include "email_agent/evidence.html" with evidence_list=finding.evidence %}</li>{% endfor %}</ul>
+        {% endif %}
+      </article>
+    {% empty %}<p>当前扫描范围内没有匹配邮件。请检查授权、范围和平台检索条件。</p>{% endfor %}
+    {% if plan.status != 'cancelled' and not plan.approved_manifest and plan.spec.action != 'search' and items %}
+      {% if not plan.selection_locked_at %}<button>分析所选邮件并准备处理建议</button>{% elif has_pending_items %}<button>继续分析下一批（最多 {{ chunk_size }} 封）</button>{% endif %}
+    {% endif %}
+  </form>
+  {% if has_failed_items and plan.status != 'cancelled' and not plan.approved_manifest %}
+    <form method="post" action="{% url 'command_act' plan.id 'retry' %}">{% csrf_token %}<input type="hidden" name="version" value="{{ plan.version }}"><button class="secondary">重试未完成的分析</button></form>
+  {% endif %}
+</section>
+{% endif %}
+{% if actions %}
+<section>
+  <h2>批量动作预览 · 共 {{ actions|length }} 项</h2>
+  <p>以下展示实际保存的内容。可以先进入单项审核修改，再更新本页预览。只有勾选并明确确认的动作才执行。</p>
+  {% if not plan.approved_manifest and plan.status != 'cancelled' %}<form method="post" action="{% url 'command_act' plan.id 'refresh' %}">{% csrf_token %}<input type="hidden" name="version" value="{{ plan.version }}"><button class="secondary">更新批量预览中的版本</button></form>{% endif %}
+  <form method="post" action="{% url 'command_act' plan.id 'approve' %}">
+    {% csrf_token %}<input type="hidden" name="version" value="{{ plan.version }}">
+    {% for action in actions %}
+      <article class="mail-card">
+        {% if action.selectable and plan.status != 'cancelled' %}<label><input type="checkbox" name="action_ids" value="{{ action.id }}" checked> 选择执行此动作</label>{% endif %}
+        <h3>{{ action.proposal.get_kind_display }} · 第 {{ action.proposal.version }} 版</h3>
+        <p><a href="{% url 'action_review' action.proposal_id %}">打开单项审核 / 修改</a> · {{ action.proposal.get_review_state_display }}{% if action.execution %} · {{ action.execution.get_status_display }}{% endif %}</p>
+        {% if action.stale %}<p class="warning">内容已变化，更新批量预览后才能选择。</p>{% endif %}
+        {% if action.reused %}<p class="warning">此事项已有审核单，保留了此前内容和用户修改。请比较本次新分析，需调整时进入单项编辑。</p>{% endif %}
+        {% if action.error_message %}<p class="warning">{{ action.error_message }}</p>{% endif %}
+        {% if action.proposal.kind == 'send_reply' %}
+          <p>发件邮箱：{{ action.proposal.content.from }} · 收件人：{{ action.proposal.content.to|join:"，" }}</p>
+          {% if action.proposal.content.cc %}<p>抄送：{{ action.proposal.content.cc|join:"，" }}</p>{% endif %}
+          <h4>{{ action.proposal.content.subject }}</h4><pre class="mail-body">{{ action.proposal.content.body }}</pre>
+        {% else %}{% include "email_agent/task_content.html" with content=action.proposal.content dependencies=action.dependencies %}{% endif %}
+      </article>
+    {% endfor %}
+    {% if has_selectable_actions and plan.status != 'cancelled' and not has_pending_items %}<button>确认并执行所选已保存版本</button>{% endif %}
+  </form>
+  {% if plan.status == 'dispatching' %}<form method="post" action="{% url 'command_act' plan.id 'continue' %}">{% csrf_token %}<input type="hidden" name="version" value="{{ plan.version }}"><button>继续执行已确认的剩余动作（最多 {{ chunk_size }} 项）</button></form>{% endif %}
+  <p class="muted">未选择的审核单继续保留。失败或结果待核对的动作请进入单项记录处理；重复点击不会自动重发。</p>
+</section>
+{% endif %}
+{% endblock %}

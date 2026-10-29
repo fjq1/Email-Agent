@@ -6,6 +6,8 @@
   <h2>{{ analysis.source_snapshot.subject|default:"（无主题）" }}</h2>
   <p>{{ analysis.message.mailbox.email_address }} · {{ analysis.model_name }} · {{ analysis.run.get_status_display }}</p>
   <p class="muted">分析时区：{{ analysis.timezone_name }} · {{ analysis.created_at|date:"Y-m-d H:i:s T" }}</p>
+  {% if preference_display %}<details><summary>本次使用的已确认偏好</summary><ul>{% for item in preference_display %}<li>{{ item.label }}：{{ item.display_value }} · 第 {{ item.version }} 版</li>{% endfor %}</ul></details>{% endif %}
+  {% if request_style %}<p>本次临时指定：{% for item in request_style %}{{ item.label }}：{{ item.display_value }} {% endfor %}</p>{% endif %}
   <p class="notice">分析结果是处理建议。进入审核后可以修改内容，再确认创建待办或发送；每项动作分别审核。</p>
   {% if analysis.run.status != 'succeeded' %}
     <p class="warning">{{ analysis.error_message|default:"分析尚未结束；如果上次请求已中断，可以继续处理。" }}</p>
