@@ -63,6 +63,7 @@ def validate_form(proposal, owner, data):
 
 
 def _advance(proposal):
+    from email_agent.services.command_status import sync_proposal_plans
     from email_agent.workflows.review import advance_review
 
     try:
@@ -70,6 +71,7 @@ def _advance(proposal):
     except RunBusyError:
         raise ValidationError("该审核单正在处理，请稍后刷新。") from None
     proposal.refresh_from_db()
+    sync_proposal_plans(proposal)
     return proposal
 
 

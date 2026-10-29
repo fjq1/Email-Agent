@@ -16,6 +16,7 @@ from django.urls import reverse
 from email_agent.models import (
     ActionExecution,
     ActionProposal,
+    AgentRun,
     AnalysisResult,
     CommandPlan,
     DraftTurn,
@@ -465,6 +466,30 @@ def test_compose_command_conversation_then_explicit_send(
             reverse("action_review_decide", args=[proposal.id]),
             {"version": 3, "decision": "approve"},
         )
+    # 从审核记录发送时，也必须同步指令计划；该计划的旧预览仍是第 1 版。
+    plan.refresh_from_db()
+    assert plan.status == "completed" and plan.run.status == AgentRun.Status.SUCCEEDED
+    detail = client.get(reverse("command_detail", args=[plan.id]))
+    assert detail.context["plan"].status == "completed"
+    assert detail.context["actions"][0].execution.version == 3
+    assert not detail.context["actions"][0].stale
+    assert client.get(reverse("commands")).context["plans"][0].status == "completed"
+
+    # 模拟旧版本留下的过期汇总。GET 按事实展示，但不写库或重发；修复服务可补齐存储。
+    from email_agent.services.command_status import reconcile_status
+    from email_agent.workflows.locking import run_lock
+
+    CommandPlan.objects.filter(pk=plan.id).update(status="ready")
+    AgentRun.objects.filter(pk=plan.run_id).update(status=AgentRun.Status.WAITING_REVIEW)
+    assert client.get(reverse("commands")).context["plans"][0].status == "completed"
+    assert (
+        client.get(reverse("command_detail", args=[plan.id])).context["plan"].status == "completed"
+    )
+    plan.refresh_from_db()
+    assert plan.status == "ready"
+    with run_lock(plan.run_id):
+        reconcile_status(plan)
+    assert plan.status == "completed" and plan.run.status == AgentRun.Status.SUCCEEDED
     assert len(mail_api) == 1 and mail_api[0].method == "POST"
     payload = json.loads(mail_api[0].content)
     if provider == "gmail":
@@ -485,3 +510,52 @@ def test_compose_command_conversation_then_explicit_send(
     assert (
         client.post(reverse("action_review_revise", args=[proposal.id]), first).status_code == 404
     )
+
+
+def test_individual_unknown_result_keeps_plan_incomplete(
+    client, owner, mailbox, model_api, mail_api, monkeypatch
+):
+    """汇总不能把 UNKNOWN 误报为完成，也不能覆盖用户明确取消指令的决定。"""
+    from email_agent.providers.base import SendOutcomeUnknown
+    from email_agent.services.command_status import sync_proposal_plans
+
+    mailbox.can_send = True
+    mailbox.save()
+    model_api[0].update(
+        action="compose_email",
+        compose={
+            "to": ["recipient@example.com"],
+            "cc": [],
+            "subject": "",
+            "brief": "讨论项目",
+        },
+    )
+    model_api[2].append(
+        {"subject": "项目讨论", "body": "希望与你讨论项目。", "summary": "已起草。"}
+    )
+    calls = []
+
+    def uncertain_send(self, *args):
+        calls.append(True)
+        raise SendOutcomeUnknown()
+
+    monkeypatch.setattr(GmailProvider, "send_mail", uncertain_send)
+    plan = commands.create_command(
+        owner,
+        mailbox=mailbox,
+        instruction="向 recipient@example.com 写信讨论项目。",
+        submission_key=uuid.uuid4(),
+    )
+    proposal = plan.actions.get().proposal
+    client.force_login(owner)
+    client.post(
+        reverse("action_review_decide", args=[proposal.id]), {"version": 1, "decision": "approve"}
+    )
+    plan.refresh_from_db()
+    assert plan.status == "partial" and plan.run.status == AgentRun.Status.FAILED
+    assert proposal.executions.get().status == "unknown"
+    assert client.get(reverse("commands")).context["plans"][0].status == "partial"
+    commands.cancel_plan(plan.id, owner, plan.version)
+    sync_proposal_plans(proposal)
+    plan.refresh_from_db()
+    assert plan.status == "cancelled" and len(calls) == 1

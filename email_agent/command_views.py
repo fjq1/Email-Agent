@@ -4,6 +4,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
+from django.db.models import prefetch_related_objects
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
@@ -14,8 +15,9 @@ from email_agent.command_forms import (
     CommandStartForm,
     PreferenceForm,
 )
-from email_agent.models import CommandPlan, TaskItem, UserPreference
+from email_agent.models import ActionExecution, CommandPlan, TaskItem, UserPreference
 from email_agent.services import commands
+from email_agent.services.command_status import display_status
 from email_agent.services.preferences import (
     change_preference,
     describe_preferences,
@@ -40,14 +42,19 @@ def index(request):
             form.add_error(None, error_message(exc))
         else:
             return redirect("command_detail", plan_id=plan.id)
+    plans = list(
+        CommandPlan.objects.filter(run__owner=request.user)
+        .select_related("mailbox", "run")
+        .prefetch_related("items", "actions__proposal__executions", "actions__proposal__run")[:20]
+    )
+    for plan in plans:
+        display_status(plan)
     return render(
         request,
         "email_agent/commands.html",
         {
             "form": form,
-            "plans": CommandPlan.objects.filter(run__owner=request.user).select_related("mailbox")[
-                :20
-            ],
+            "plans": plans,
             "analysis_provider": settings.MAIL_ANALYSIS_PROVIDER,
         },
     )
@@ -64,17 +71,29 @@ def owned_plan(request, plan_id):
 @never_cache
 def detail(request, plan_id):
     plan = owned_plan(request, plan_id)
+    prefetch_related_objects(
+        [plan], "items", "actions__proposal__executions", "actions__proposal__run"
+    )
+    display_status(plan)
     actions = list(plan.actions.select_related("proposal__run", "proposal__analysis"))
+    confirmed_versions = {entry["action_id"]: entry["version"] for entry in plan.approved_manifest}
     for action in actions:
         proposal = action.proposal
-        action.stale = (
+        action.stale = proposal.review_state == "pending" and (
             action.proposal_version != proposal.version
             or action.content_hash != proposal.content_hash
         )
         action.selectable = (
             not action.stale and proposal.review_state == "pending" and not plan.approved_manifest
         )
-        action.execution = proposal.executions.filter(version=action.proposal_version).first()
+        # 未经过批量确认时，展示单项审核的实际当前版本，不能继续查旧预览的执行记录。
+        action.execution_version = confirmed_versions.get(action.pk, proposal.version)
+        action.execution = proposal.executions.filter(version=action.execution_version).first()
+        if action.execution and action.execution.status in {
+            ActionExecution.Status.SUCCEEDED,
+            ActionExecution.Status.ACCEPTED,
+        }:
+            action.error_message = ""  # 手动重试已成功时，不继续显示批量执行的旧失败提示。
         action.dependencies = TaskItem.objects.filter(
             owner=request.user, pk__in=proposal.content.get("dependencies", [])
         )

@@ -95,7 +95,8 @@
         {% if action.selectable and plan.status != 'cancelled' %}<label><input type="checkbox" name="action_ids" value="{{ action.id }}" checked> 选择执行此动作</label>{% endif %}
         <h3>{{ action.proposal.get_kind_display }} · 第 {{ action.proposal.version }} 版</h3>
         <p><a href="{% url 'action_review' action.proposal_id %}">{% if action.proposal.is_email %}打开审核 / 对话修改草稿{% else %}打开单项审核{% endif %}</a> · <span class="status-badge" data-tone="{{ action.proposal.review_state|status_tone }}">{{ action.proposal.review_state|review_label }}</span>{% if action.execution %} · <span class="status-badge" data-tone="{{ action.execution.status|status_tone }}">{{ action.execution.get_status_display }}</span>{% endif %}</p>
-        {% if action.stale %}<p class="warning">内容已变化，更新批量预览后才能选择。</p>{% endif %}
+        {% if action.stale %}<p class="warning">{% if plan.approved_manifest %}此审核单已有新版本，本计划的确认版本保持不变；请在单项审核中处理新版本。{% else %}内容已变化，更新批量预览后才能选择。{% endif %}</p>{% endif %}
+        {% if action.execution and action.execution_version != action.proposal.version %}<p class="muted">此执行结果属于本计划已确认的第 {{ action.execution_version }} 版；上方审核单为当前第 {{ action.proposal.version }} 版。</p>{% endif %}
         {% if action.reused %}<p class="warning">此事项已有审核单，保留了此前内容和用户修改。请比较本次新分析，需调整时进入单项编辑。</p>{% endif %}
         {% if action.error_message %}<p class="warning">{{ action.error_message }}</p>{% endif %}
         {% if action.proposal.is_email %}

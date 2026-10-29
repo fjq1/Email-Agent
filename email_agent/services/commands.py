@@ -24,6 +24,7 @@ from email_agent.models import (
 from email_agent.providers.base import MailError
 from email_agent.services.analysis import analyze_message
 from email_agent.services.audit import record_event
+from email_agent.services.command_status import reconcile_status, set_status
 from email_agent.services.drafts import prepare_new_proposal
 from email_agent.services.mailboxes import read_message, search_messages
 from email_agent.services.preferences import effective_preferences, save_preference
@@ -46,23 +47,6 @@ def locked_plan(plan_id, owner):
             yield plan
     except RunBusyError:
         raise ValidationError("此指令正在处理，请稍后刷新。") from None
-
-
-def set_status(plan, status, error=""):
-    plan.status, plan.error_message = status, error[:500]
-    plan.save()
-    run = plan.run
-    run.status = (
-        AgentRun.Status.FAILED
-        if error
-        else AgentRun.Status.RUNNING
-        if status in {"processing", "dispatching"}
-        else AgentRun.Status.WAITING_REVIEW
-        if status in {"preview", "ready"}
-        else AgentRun.Status.SUCCEEDED
-    )
-    run.last_error_code = "command_incomplete" if error else ""
-    run.save(update_fields=["status", "last_error_code", "updated_at"])
 
 
 def safe_error(exc):
@@ -146,6 +130,7 @@ def compose_plan(plan_id, owner, version):
             )
             plan.selection_locked_at = timezone.now()
             set_status(plan, CommandPlan.Status.READY)
+            reconcile_status(plan)
         except Exception as exc:
             set_status(plan, CommandPlan.Status.FAILED, safe_error(exc))
     return plan
@@ -357,6 +342,7 @@ def process_plan(plan_id, owner, version, item_ids=(), *, retry_failed=False):
                 else CommandPlan.Status.COMPLETED
             )
             set_status(plan, status)
+        reconcile_status(plan)
     return plan
 
 
@@ -451,16 +437,8 @@ def _dispatch(plan, owner):
             item.error_message = safe_error(exc)
         item.dispatched_at = timezone.now()
         item.save(update_fields=["error_message", "dispatched_at"])
-    if len(remaining) > CHUNK_SIZE:
-        set_status(plan, CommandPlan.Status.DISPATCHING)
-    else:
-        set_status(
-            plan,
-            CommandPlan.Status.PARTIAL
-            if plan.actions.exclude(error_message="").exists()
-            or plan.items.filter(status="failed").exists()
-            else CommandPlan.Status.COMPLETED,
-        )
+    # 其他入口可能已完成这些动作，或已手动重试成功；汇总时以账本为准。
+    reconcile_status(plan)
 
 
 def confirm_suggestion(plan_id, owner, version, index, expected_version):
