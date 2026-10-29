@@ -1,0 +1,20 @@
+{# 分析页及候选来源共用展示，避免两处日期/负责人的提示逻辑不一致。 #}
+<p>{{ item.description }}</p>
+<p>负责人：{% if item.owner %}{{ item.owner.raw }}{% if item.owner.email %} · {{ item.owner.email }}{% endif %}{% else %}待确认{% endif %}</p>
+{% if item.owner %}{% include "email_agent/evidence.html" with evidence_list=item.owner.evidence %}{% endif %}
+<p>
+  截止日期：
+  {% if item.deadline %}
+    {{ item.deadline.raw }} → {{ item.deadline.date|default:"日期待确认" }}{% if item.deadline.time %} {{ item.deadline.time }}{% endif %}
+    {% if item.deadline.timezone %} · {{ item.deadline.timezone }}{% endif %}
+    {% if item.deadline.inferred %}<strong class="warning">含推断，待确认</strong>{% endif %}
+  {% else %}未明确{% endif %}
+</p>
+{% if item.deadline %}{% include "email_agent/evidence.html" with evidence_list=item.deadline.evidence %}{% endif %}
+{% if item.recurring %}<p>周期实例：{{ item.occurrence|default:"尚未确定，本来源单独保留" }}</p>{% endif %}
+{% if item.dependencies %}
+  <p>依赖事项：</p>
+  <ul>{% for dependency in item.dependencies %}<li>{{ dependency.text }}{% include "email_agent/evidence.html" with evidence_list=dependency.evidence %}</li>{% endfor %}</ul>
+{% endif %}
+{% if item.uncertainties %}<ul class="warning">{% for text in item.uncertainties %}<li>{{ text }}</li>{% endfor %}</ul>{% endif %}
+{% include "email_agent/evidence.html" with evidence_list=item.evidence %}

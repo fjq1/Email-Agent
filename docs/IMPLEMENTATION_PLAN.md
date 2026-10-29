@@ -50,7 +50,8 @@ agent-project/
 ├── email_agent/
 │   ├── models/
 │   │   ├── operations.py            # 运行、操作记录和审计
-│   │   └── mailboxes.py             # 邮箱账户、授权过程和邮件缓存
+│   │   ├── mailboxes.py             # 邮箱账户、授权过程和邮件缓存
+│   │   └── analysis.py              # 分析快照、任务候选和去重来源
 │   ├── providers/
 │   │   ├── base.py                  # 统一数据结构、受约束 HTTP 读取和错误类型
 │   │   ├── config.py                # 只读权限和平台 OAuth 配置
@@ -58,22 +59,28 @@ agent-project/
 │   │   ├── gmail.py                 # Google OAuth 与 Gmail API
 │   │   └── outlook.py               # MSAL 与 Microsoft Graph
 │   ├── intelligence/
-│   │   └── models.py                # 三平台模型工厂
+│   │   ├── models.py                # 三平台模型工厂与场景参数覆盖
+│   │   ├── schemas.py               # Pydantic 结构化输出契约
+│   │   └── understanding.py         # 提示词、模型调用、原文证据定位与歧义处理
 │   ├── services/
 │   │   ├── runs.py                  # 同步启动、审核和手动恢复
 │   │   ├── audit.py                 # 幂等审计与已知敏感信息脱敏
 │   │   ├── credentials.py           # 令牌与授权过程加解密
 │   │   ├── oauth.py                 # 一次性授权状态和账户绑定
 │   │   ├── mailboxes.py             # 刷新、只读检索、分页和缓存
+│   │   ├── analysis.py              # 分析复用、输入快照、业务候选去重与来源关联
 │   │   └── health.py                # 基础设施健康检查
 │   ├── workflows/
 │   │   ├── checkpoints.py           # PostgreSQL 检查点连接与初始化
-│   │   └── probe.py                 # 阶段 0 持久化诊断图
+│   │   ├── locking.py               # 两类同步流程共用的执行锁
+│   │   ├── probe.py                 # 阶段 0 持久化诊断图
+│   │   └── mail_processing.py       # 理解与候选落库分步持久化
 │   ├── management/commands/         # 初始化、检查和诊断命令
 │   ├── migrations/                  # Django 业务表迁移
-│   ├── templates/                   # 登录与诊断控制台
+│   ├── templates/                   # 登录、邮箱、分析结果与候选来源
 │   ├── views.py                     # HTTP 层和用户权限边界
 │   ├── mail_views.py                # 邮箱授权与读取页面
+│   ├── analysis_views.py            # 触发分析、结果、候选及来源页面
 │   ├── forms.py                     # 检索参数与分页输入校验
 │   ├── logging.py                   # 隐藏访问日志中的授权码和 state
 │   └── admin.py                     # 只读业务运维视图
@@ -92,15 +99,15 @@ agent-project/
 └── README.md                        # 启动与验证说明
 ```
 
-阶段 1 的只读页面直接同步调用邮箱业务服务。后续再增加 `ingestion/`（增量同步）、`intelligence/schemas.py`（结构化数据）和 `workflows/mail_processing.py`（邮件理解与审核工作流）。按功能增长增添模块，不预先放置空目录或占位代码。
+阶段 1 的只读页面同步调用邮箱服务，阶段 2 通过 LangGraph 执行理解与候选落库。审核和执行节点将在阶段 3 加入。`ingestion/` 在增量同步阶段再创建，不预先放置空目录或占位代码。
 
 ## 分阶段执行计划
 
 | 阶段 | 功能与实现顺序 | 验收标准 |
 |---|---|---|
 | 0：基础设施 | PostgreSQL、环境变量、用户登录、同步入口、检查点、操作记录、三平台模型工厂、诊断流程、测试 | 请求内完成当前阶段；暂停位置跨进程保留；手动恢复和重复确认不重复写入 |
-| 1：真实邮箱只读接入 | Gmail 与 Outlook 的官方 OAuth、加密凭据、搜索、分页、正文、会话读取和只读缓存 | 接入代码与隔离测试已完成；真实授权和读取需按配置指南创建应用后验收 |
-| 2：邮件理解 | 清洗正文；分类、摘要、任务候选、日期、负责人和依赖；回复草稿；业务去重 | 结果附邮件来源与证据；歧义进入待确认；评估集可回归 |
+| 1：真实邮箱只读接入 | Gmail 与 Outlook 的官方 OAuth、加密凭据、搜索、分页、正文、会话读取和只读缓存 | 代码与隔离测试完成；用户已反馈真实邮箱连接成功，历史验证报告保留 |
+| 2：邮件理解 | 分类、摘要、任务候选、日期、负责人和依赖；回复草稿；业务去重 | 已实现原文快照及证据、歧义待确认、少量回归样本；验证结果见阶段 2 报告 |
 | 3：审核与执行 | 草稿编辑、任务编辑、确认、拒绝、取消；获批版本发送或创建任务 | 权限和版本校验通过才执行；重复确认不会重复动作；结果可追溯 |
 | 4：恢复与故障验证 | 注入发送前后断网、请求中断、进程退出和数据库故障；核对外部结果 | 已成功动作不盲目重发；未知结果保留核对入口；手动重试和部分成功可继续 |
 | 5：指令与偏好 | 指令解析、结构化搜索条件、批量计划预览；明确确认后保存偏好 | 检索范围可见；批量写入经审核；偏好可修改、禁用和删除 |
@@ -125,10 +132,16 @@ agent-project/
 - `OAuthAttempt`：绑定用户及浏览器会话的一次性授权过程，10 分钟过期，消费后清空流程密文。
 - `EmailMessage`：按账户及服务商邮件 ID 去重的缓存，正文读取时间、截断标记和附件元信息。
 
+阶段 2 增加：
+
+- `AnalysisResult`：关联邮件与运行，冻结原文、模型与提示词版本、解释时区、结构化结果和用量。
+- `TaskCandidate`：待审核的业务事项候选，数据库唯一指纹保证保守去重。
+- `TaskSource`：候选与每次分析的关联，保存各来源的负责人、日期、依赖、证据及差异。重复提醒复用候选，改期不覆盖旧来源。
+
 后续按需增加：
 
 - `SyncCursor`，仅在增量同步阶段创建；会话目前直接使用服务商会话 ID 与分页结果，无需重复创建会话表。
-- `AnalysisResult`、`TaskItem`、`TaskDependency`，任务与来源邮件多对多关联。
+- `TaskItem`、`TaskDependency`，审核后才创建正式任务并解析依赖；使用阶段 2 的候选来源作为依据。
 - `ActionProposal`、`ApprovalDecision`、`ActionExecution`、`ActionAttempt`。
 - `UserPreference`，保存适用范围、确认来源、版本、有效期和启用状态。
 
@@ -186,6 +199,8 @@ Gmail 使用 Google OAuth、Gmail API、history 增量同步及 watch / PubSub�
 配置步骤见 [MAILBOX_SETUP.md](MAILBOX_SETUP.md)，测试与待完成真实授权见 [STAGE1_VERIFICATION.md](STAGE1_VERIFICATION.md)。阶段 0 的验收文件保留为历史记录。
 
 ## 后续扩展优先级
+
+阶段 2 的使用方式、模型参数与保守去重边界见根目录 README；实际验证见 [STAGE2_VERIFICATION.md](STAGE2_VERIFICATION.md)。本阶段不增加邮箱写权限，草稿仅保存于本地分析结果。原有验证报告继续作为历史记录保留。
 
 先完善任务完成、阻塞、改期和催办；然后增加标签、归档、已读与批量处理。再考虑回复全部、附件理解、会议日程和外部任务系统。语义搜索可以在原生检索及本地索引稳定后引入 pgvector。自动化执行应由明确的用户规则与风险限制逐步开放。
 

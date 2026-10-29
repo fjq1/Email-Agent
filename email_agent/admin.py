@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from email_agent.models import AgentRun, AuditEvent, EmailMessage, MailboxAccount, OperationRecord
+from email_agent.models import (
+    AgentRun,
+    AnalysisResult,
+    AuditEvent,
+    EmailMessage,
+    MailboxAccount,
+    OperationRecord,
+    TaskCandidate,
+)
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
@@ -44,3 +52,13 @@ class MailboxAccountAdmin(ReadOnlyAdmin):
 class EmailMessageAdmin(ReadOnlyAdmin):
     list_display = ("subject", "mailbox", "received_at", "body_loaded")
     search_fields = ("subject", "mailbox__email_address")
+
+
+@admin.register(AnalysisResult)
+class AnalysisResultAdmin(ReadOnlyAdmin):
+    list_display = ("id", "message", "provider", "model_name", "created_at")
+
+
+@admin.register(TaskCandidate)
+class TaskCandidateAdmin(ReadOnlyAdmin):
+    list_display = ("title", "mailbox", "created_at")

@@ -11,7 +11,8 @@ from django.db import connections
 
 from email_agent.models import AgentRun, OperationRecord
 from email_agent.services.runs import create_probe, decide_probe, resume_probe
-from email_agent.workflows.probe import advance_run, complete_node, run_lock
+from email_agent.workflows.locking import run_lock
+from email_agent.workflows.probe import advance_run, complete_node
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.usefixtures("checkpoints")]
 

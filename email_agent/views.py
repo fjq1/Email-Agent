@@ -38,7 +38,7 @@ def dashboard(request):
         request,
         "email_agent/dashboard.html",
         {
-            "runs": AgentRun.objects.filter(owner=request.user)[:20],
+            "runs": AgentRun.objects.filter(owner=request.user, kind="infrastructure_probe")[:20],
             "providers": provider_statuses(),
             "mailboxes": MailboxAccount.objects.filter(owner=request.user),
             "mail_connections": connection_options(),

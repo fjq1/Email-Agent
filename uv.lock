@@ -24,6 +24,7 @@ dependencies = [
     { name = "langgraph-checkpoint-postgres" },
     { name = "msal" },
     { name = "psycopg", extra = ["binary", "pool"] },
+    { name = "pydantic" },
 ]
 
 [package.dev-dependencies]
@@ -49,6 +50,7 @@ requires-dist = [
     { name = "langgraph-checkpoint-postgres", specifier = ">=3" },
     { name = "msal", specifier = ">=1.39.0" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2" },
+    { name = "pydantic", specifier = ">=2.12" },
 ]
 
 [package.metadata.requires-dev]

@@ -1,0 +1,7 @@
+{# 仅输出已通过原文定位校验的引用。所有文本继续使用自动转义。 #}
+{% for evidence in evidence_list %}
+  <details>
+    <summary class="muted">原文依据 · {% if evidence.field == 'body_text' %}正文{% elif evidence.field == 'subject' %}主题{% elif evidence.field == 'sender' %}发件人{% elif evidence.field == 'to_recipients' %}收件人{% else %}抄送{% endif %}</summary>
+    <blockquote>{{ evidence.quote }}</blockquote>
+  </details>
+{% endfor %}

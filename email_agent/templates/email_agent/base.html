@@ -24,12 +24,15 @@
     .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
     .mail-body { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.8; }
     .mail-card { border-top: 1px solid #e4e9f2; padding-top: 20px; margin-top: 20px; }
+    blockquote { margin: 8px 0; padding: 8px 14px; border-left: 3px solid #b6c3d5; background: #f6f8fb; white-space: pre-wrap; overflow-wrap: anywhere; }
+    textarea { box-sizing: border-box; width: 100%; min-height: 220px; padding: 14px; font: inherit; line-height: 1.7; border: 1px solid #b6c3d5; border-radius: 6px; }
+    summary { cursor: pointer; } .warning { color: #8a4a05; }
     nav { display: flex; gap: 18px; margin-bottom: 20px; flex-wrap: wrap; }
   </style>
 </head>
 <body><main>
   <header><h1>邮件助理</h1>{% if user.is_authenticated %}<div class="row"><span>{{ user.username }}</span><form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="secondary">退出登录</button></form></div>{% endif %}</header>
-  {% if user.is_authenticated %}<nav aria-label="主导航"><a href="{% url 'dashboard' %}">我的邮箱</a><a href="{% url 'mailbox_setup' %}">连接配置</a></nav>{% endif %}
+  {% if user.is_authenticated %}<nav aria-label="主导航"><a href="{% url 'dashboard' %}">我的邮箱</a><a href="{% url 'task_candidates' %}">候选事项</a><a href="{% url 'mailbox_setup' %}">连接配置</a></nav>{% endif %}
   {% for message in messages %}<div class="notice" role="status">{{ message }}</div>{% endfor %}
   {% block content %}{% endblock %}
 </main></body>

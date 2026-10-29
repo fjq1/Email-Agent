@@ -1,7 +1,6 @@
 """无模型费用、无外部写入的诊断图，验证暂停和恢复基础设施。"""
 
 import logging
-from contextlib import contextmanager
 from typing import TypedDict
 
 from django.db import connection, transaction
@@ -11,16 +10,9 @@ from langgraph.types import Command, interrupt
 from email_agent.models import AgentRun, OperationRecord
 from email_agent.services.audit import record_event
 from email_agent.workflows.checkpoints import open_checkpointer
+from email_agent.workflows.locking import RunFailedError, run_lock
 
 logger = logging.getLogger(__name__)
-
-
-class RunBusyError(Exception):
-    """同一工作流正被其他进程处理。"""
-
-
-class RunFailedError(Exception):
-    """运行已保存失败状态，调用方可显示结果并提供手动重试。"""
 
 
 class ProbeState(TypedDict, total=False):
@@ -28,22 +20,6 @@ class ProbeState(TypedDict, total=False):
     prepared: bool
     decision: str
     operation_id: str
-
-
-@contextmanager
-def run_lock(run_id):
-    # 会话级咨询锁在进程退出、数据库连接断开后自动释放。
-    lock_id = int.from_bytes(run_id.bytes[:8], "big", signed=True)
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT pg_try_advisory_lock(%s)", [lock_id])
-        acquired = cursor.fetchone()[0]
-    if not acquired:
-        raise RunBusyError("同一流程正在执行。")
-    try:
-        yield
-    finally:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_unlock(%s)", [lock_id])
 
 
 def prepare_node(state: ProbeState):

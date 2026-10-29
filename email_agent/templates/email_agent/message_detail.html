@@ -2,6 +2,30 @@
 {% block title %}邮件详情 · 邮件助理{% endblock %}
 {% block content %}
 <section>
+  <h2>分析这封邮件</h2>
+  <p>使用{{ analysis_provider }}生成分类、摘要、候选事项和回复草稿。只分析当前邮件；相同输入会复用已有结果。</p>
+  <p class="muted">分析将把邮件文本和附件元信息发送给所选模型。日期按下方时区解释，相对日期以邮件发送时间为基准。正文使用当前已读取的缓存。</p>
+  {% if email.body_loaded %}
+    <form method="post" action="{% url 'mailbox_analyze' account.id email.id %}">
+      {% csrf_token %}
+      <div class="actions">
+        <label>{{ analysis_form.timezone_name.label }} {{ analysis_form.timezone_name }}</label>
+        <button>分析邮件</button>
+      </div>
+    </form>
+  {% else %}
+    <p>请先成功读取正文再分析。</p>
+  {% endif %}
+  {% if analyses %}
+    <h3>已有分析</h3>
+    <ul>
+      {% for analysis in analyses %}
+        <li><a href="{% url 'mail_analysis' analysis.id %}">{{ analysis.created_at|date:"Y-m-d H:i" }} · {{ analysis.category_label }}</a> · {{ analysis.run.get_status_display }} · {{ analysis.timezone_name }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+</section>
+<section>
   <div class="actions">
     <a href="{% url 'mailbox_messages' account.id %}">返回邮件检索</a>
     {% if email.provider_thread_id %}

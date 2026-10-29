@@ -7,7 +7,8 @@ from django.db import transaction
 
 from email_agent.models import AgentRun
 from email_agent.services.audit import record_event
-from email_agent.workflows.probe import RunBusyError, RunFailedError, advance_run
+from email_agent.workflows.locking import RunBusyError, RunFailedError
+from email_agent.workflows.probe import advance_run
 
 
 def execute_run(run):
@@ -33,7 +34,9 @@ def create_probe(owner):
 
 def decide_probe(run_id, owner, decision):
     with transaction.atomic():
-        run = AgentRun.objects.select_for_update().get(pk=run_id, owner=owner)
+        run = AgentRun.objects.select_for_update().get(
+            pk=run_id, owner=owner, kind="infrastructure_probe"
+        )
         if decision not in AgentRun.Decision.values:
             raise ValidationError("审核决定必须是确认或拒绝。")
         if run.review_decision:
@@ -54,7 +57,7 @@ def decide_probe(run_id, owner, decision):
 
 def resume_probe(run_id, owner):
     """手动恢复中断或失败的运行；未审核的运行仍保持等待审核。"""
-    run = AgentRun.objects.get(pk=run_id, owner=owner)
+    run = AgentRun.objects.get(pk=run_id, owner=owner, kind="infrastructure_probe")
     if run.status in [
         AgentRun.Status.SUCCEEDED,
         AgentRun.Status.REJECTED,

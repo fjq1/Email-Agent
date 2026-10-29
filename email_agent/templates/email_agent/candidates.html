@@ -1,0 +1,20 @@
+{% extends "email_agent/base.html" %}
+{% block title %}候选事项 · 邮件助理{% endblock %}
+{% block content %}
+<section>
+  <h2>候选事项</h2>
+  <p>从邮件中提取的待审核事项；同一候选可关联多个邮件来源。目前尚未创建正式待办。</p>
+  {% for candidate in page %}
+    <article class="mail-card">
+      <h3><a href="{% url 'task_candidate' candidate.id %}">{{ candidate.title }}</a></h3>
+      <p class="muted">{{ candidate.mailbox.email_address }} · {{ candidate.created_at|date:"Y-m-d H:i" }} · 待审核</p>
+      <p>{{ candidate.details.description }}</p>
+    </article>
+  {% empty %}<p>还没有候选事项，请先打开一封邮件并点击“分析邮件”。</p>{% endfor %}
+  <div class="actions">
+    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">上一页</a>{% endif %}
+    <span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页</span>
+    {% if page.has_next %}<a href="?page={{ page.next_page_number }}">下一页</a>{% endif %}
+  </div>
+</section>
+{% endblock %}

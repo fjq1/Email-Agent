@@ -1,0 +1,18 @@
+{% extends "email_agent/base.html" %}
+{% block title %}候选来源 · 邮件助理{% endblock %}
+{% block content %}
+<section>
+  <a href="{% url 'task_candidates' %}">返回候选事项</a>
+  <h2>{{ candidate.title }}</h2>
+  <p>{{ candidate.mailbox.email_address }} · 待审核</p>
+  <p class="notice">以下保留各来源的具体日期、负责人和依赖。存在差异时由人工在后续审核阶段决定，不自动覆盖旧信息。</p>
+  {% for source in sources %}
+    <article class="mail-card">
+      <h3><a href="{% url 'mail_analysis' source.analysis_id %}">{{ source.analysis.source_snapshot.subject|default:"（无主题）" }}</a></h3>
+      <p class="muted">{{ source.analysis.created_at|date:"Y-m-d H:i" }} · {{ source.analysis.timezone_name }}</p>
+      {% if source.conflict %}<p class="warning">本来源包含日期或依赖差异。</p>{% endif %}
+      {% include "email_agent/task_fields.html" with item=source.details %}
+    </article>
+  {% empty %}<p>关联分析尚未完成，请回到来源邮件继续处理。</p>{% endfor %}
+</section>
+{% endblock %}

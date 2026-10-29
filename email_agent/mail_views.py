@@ -1,5 +1,6 @@
 """真实邮箱页面：连接、只读检索、邮件详情和会话分页。"""
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
@@ -8,7 +9,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
-from email_agent.forms import MailSearchForm
+from email_agent.forms import MailAnalysisForm, MailSearchForm
+from email_agent.intelligence.models import PROVIDER_LABELS
 from email_agent.models import EmailMessage, MailboxAccount
 from email_agent.providers.base import MailError
 from email_agent.services.mailboxes import read_message, read_thread, search_messages
@@ -130,7 +132,16 @@ def message_detail(request, account_id, message_id):
     return render(
         request,
         "email_agent/message_detail.html",
-        {"account": account, "email": email, "cached": cached},
+        {
+            "account": account,
+            "email": email,
+            "cached": cached,
+            "analysis_form": MailAnalysisForm(initial={"timezone_name": settings.TIME_ZONE}),
+            "analysis_provider": PROVIDER_LABELS.get(
+                settings.MAIL_ANALYSIS_PROVIDER, settings.MAIL_ANALYSIS_PROVIDER
+            ),
+            "analyses": email.analyses.select_related("run")[:5],
+        },
     )
 
 

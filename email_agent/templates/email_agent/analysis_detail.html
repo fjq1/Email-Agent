@@ -1,0 +1,62 @@
+{% extends "email_agent/base.html" %}
+{% block title %}邮件分析 · 邮件助理{% endblock %}
+{% block content %}
+<section>
+  <a href="{% url 'mailbox_message' analysis.message.mailbox_id analysis.message_id %}">返回来源邮件</a>
+  <h2>{{ analysis.source_snapshot.subject|default:"（无主题）" }}</h2>
+  <p>{{ analysis.message.mailbox.email_address }} · {{ analysis.model_name }} · {{ analysis.run.get_status_display }}</p>
+  <p class="muted">分析时区：{{ analysis.timezone_name }} · {{ analysis.created_at|date:"Y-m-d H:i:s T" }}</p>
+  <p class="notice">本页提供理解结果、候选事项和草稿，尚未创建正式任务或发送邮件。后续审核应以这里保存的具体原文和内容为准。</p>
+  {% if analysis.run.status != 'succeeded' %}
+    <p class="warning">{{ analysis.error_message|default:"分析尚未结束；如果上次请求已中断，可以继续处理。" }}</p>
+    <form method="post" action="{% url 'mail_analysis_retry' analysis.id %}">{% csrf_token %}<button>重试 / 继续分析</button></form>
+  {% endif %}
+</section>
+{% if analysis.run.status == 'succeeded' %}
+  <section>
+    <h2>{{ analysis.category_label }}</h2>
+    <p>{% if analysis.payload.requires_reply %}需要回复{% else %}无需回复{% endif %} · {% if analysis.payload.contains_tasks %}包含任务候选{% else %}无任务候选{% endif %} · {% if analysis.payload.needs_review %}待人工确认{% else %}信息通知{% endif %}</p>
+    {% include "email_agent/evidence.html" with evidence_list=analysis.payload.classification_evidence %}
+    <h3>摘要</h3>
+    <ul>{% for finding in analysis.payload.summary %}<li>{{ finding.text }}{% include "email_agent/evidence.html" with evidence_list=finding.evidence %}</li>{% endfor %}</ul>
+    {% if analysis.payload.uncertainties %}
+      <h3>待确认信息</h3>
+      <ul class="warning">{% for text in analysis.payload.uncertainties %}<li>{{ text }}</li>{% endfor %}</ul>
+    {% endif %}
+  </section>
+  <section>
+    <h2>任务候选</h2>
+    {% for source in task_sources %}
+      <article class="mail-card">
+        <h3><a href="{% url 'task_candidate' source.candidate_id %}">{{ source.details.title }}</a></h3>
+        {% if source.merged %}<p class="badge">已关联已有候选，保留本封邮件作为新的来源依据。</p>{% endif %}
+        {% if source.conflict %}<p class="warning">本来源的日期或依赖与已有候选不同，已分别保留，等待审核。</p>{% endif %}
+        {% if source.possible_duplicates %}
+          <p class="warning">发现可能重复的候选，请人工比较：{% for candidate_id in source.possible_duplicates %}<a href="{% url 'task_candidate' candidate_id %}">候选 {{ forloop.counter }}</a> {% endfor %}</p>
+        {% endif %}
+        {% include "email_agent/task_fields.html" with item=source.details %}
+      </article>
+    {% empty %}<p>本邮件没有提取到需要执行的事项。</p>{% endfor %}
+  </section>
+  {% if analysis.payload.reply_draft %}
+    <section>
+      <h2>回复草稿</h2>
+      <p>主题：{{ analysis.payload.reply_draft.subject }}</p>
+      <label for="reply-body">草稿正文（可复制；编辑与发送在后续审核阶段提供）</label>
+      <textarea id="reply-body" readonly>{{ analysis.payload.reply_draft.body }}</textarea>
+      {% if analysis.payload.reply_draft.uncertainties %}<ul class="warning">{% for text in analysis.payload.reply_draft.uncertainties %}<li>{{ text }}</li>{% endfor %}</ul>{% endif %}
+      {% include "email_agent/evidence.html" with evidence_list=analysis.payload.reply_draft.evidence %}
+    </section>
+  {% endif %}
+{% endif %}
+<section>
+  <details>
+    <summary>本次分析使用的原文快照</summary>
+    <p>发件人：{{ analysis.source_snapshot.sender.name }} &lt;{{ analysis.source_snapshot.sender.address }}&gt;</p>
+    <p>发送时间：{{ analysis.source_snapshot.sent_at|default:"未提供" }} · 收到时间：{{ analysis.source_snapshot.received_at|default:"未提供" }}</p>
+    {% if analysis.source_snapshot.truncated %}<p class="warning">分析输入已截断。</p>{% endif %}
+    <pre class="mail-body">{{ analysis.source_snapshot.body_text|default:"（正文为空）" }}</pre>
+  </details>
+  {% if analysis.usage.total_tokens %}<p class="muted">本次模型响应记录的用量：{{ analysis.usage.total_tokens }} tokens。格式修正或请求重试可能产生额外用量。</p>{% endif %}
+</section>
+{% endblock %}

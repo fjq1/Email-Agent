@@ -1,6 +1,6 @@
 # Gmail 与 Outlook 真实邮箱配置
 
-阶段 1 使用 OAuth 授权码流程连接真实邮箱。模型 API Key 用于后续邮件理解；这里的 OAuth Client ID、Client Secret 用于识别本项目在邮箱平台上的应用，两者分别配置。
+邮箱接入使用 OAuth 授权码流程连接真实邮箱。模型 API Key 用于阶段 2 的邮件理解；这里的 OAuth Client ID、Client Secret 用于识别本项目在邮箱平台上的应用，两者分别配置。
 
 ## 先确认本地访问地址
 
@@ -112,7 +112,7 @@ docker compose --profile app up -d --build --remove-orphans
 - 会话页也支持分页，具体顺序按服务商返回结果展示。会话变动时，翻页结果可能变化。
 - 单封正文默认最多展示 200000 字符，超出时会显示截断提示。API 响应大小也有限制，可在 `.env` 中调整。
 
-本阶段同步读取邮箱并缓存到本地 PostgreSQL；模型分析、回复草稿和发送属于后续阶段。
+邮箱服务同步读取邮件并缓存到本地 PostgreSQL；阶段 2 在邮件详情页提供分析与本地回复草稿，发送属于后续审核执行阶段。使用方法见根目录 README。
 
 ## 真实接入验收
 

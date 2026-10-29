@@ -1,4 +1,6 @@
-"""约束只读检索输入，服务商原生语法在适配器中处理。"""
+"""邮件检索与分析入口的输入校验，原生搜索语法由适配器处理。"""
+
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django import forms
 
@@ -19,3 +21,21 @@ class MailSearchForm(forms.Form):
         empty_value=10,
     )
     cursor = forms.CharField(max_length=20000, required=False, widget=forms.HiddenInput)
+
+
+class MailAnalysisForm(forms.Form):
+    timezone_name = forms.CharField(
+        label="日期解释时区",
+        max_length=80,
+        widget=forms.TextInput(attrs={"placeholder": "例如 Asia/Shanghai"}),
+    )
+
+    def clean_timezone_name(self):
+        value = self.cleaned_data["timezone_name"]
+        try:
+            ZoneInfo(value)
+        except (ValueError, ZoneInfoNotFoundError):
+            raise forms.ValidationError(
+                "请填写有效时区，例如 Asia/Shanghai 或 America/New_York。"
+            ) from None
+        return value

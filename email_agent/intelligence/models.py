@@ -11,7 +11,7 @@ from langchain_openai import ChatOpenAI
 PROVIDER_LABELS = {"bailian": "阿里云百炼", "deepseek": "DeepSeek 官方", "openai": "OpenAI / GPT"}
 
 
-def get_chat_model(provider: str | None = None) -> BaseChatModel:
+def get_chat_model(provider: str | None = None, *, extra_body: dict | None = None) -> BaseChatModel:
     """密钥、地址和模型名称均使用所选平台的独立配置。"""
     provider = provider or settings.LLM_DEFAULT_PROVIDER
     if provider not in settings.MODEL_PROVIDERS:
@@ -26,6 +26,8 @@ def get_chat_model(provider: str | None = None) -> BaseChatModel:
         raise ImproperlyConfigured("模型接口必须使用不包含账号密码的 HTTPS 地址。")
     if not isinstance(config["extra_body"], dict):
         raise ImproperlyConfigured("模型 EXTRA_BODY 必须是 JSON 对象。")
+    if extra_body is not None and not isinstance(extra_body, dict):
+        raise ImproperlyConfigured("调用场景的 EXTRA_BODY 必须是 JSON 对象。")
     options = {
         "model": config["model"],
         "api_key": config["api_key"],
@@ -35,8 +37,10 @@ def get_chat_model(provider: str | None = None) -> BaseChatModel:
     # 部分推理模型不接受 temperature，留空时完全省略该参数。
     if config["temperature"] is not None:
         options["temperature"] = config["temperature"]
-    if config["extra_body"]:
-        options["extra_body"] = config["extra_body"]
+    # 场景参数覆盖平台默认参数，例如邮件抽取关闭深度思考，不影响其他调用。
+    merged_body = {**config["extra_body"], **(extra_body or {})}
+    if merged_body:
+        options["extra_body"] = merged_body
     if provider == "deepseek":
         return ChatDeepSeek(api_base=config["base_url"], **options)
     if provider == "openai":

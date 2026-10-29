@@ -89,6 +89,10 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 LLM_DEFAULT_PROVIDER = env("LLM_DEFAULT_PROVIDER", default="bailian")
 LLM_TIMEOUT_SECONDS = env.float("LLM_TIMEOUT_SECONDS", default=60)
 LLM_MAX_RETRIES = env.int("LLM_MAX_RETRIES", default=2)
+# 邮件理解独立选择模型，按当前开发约定优先使用百炼，不自动跨平台回退。
+MAIL_ANALYSIS_PROVIDER = env("MAIL_ANALYSIS_PROVIDER", default="bailian")
+MAIL_ANALYSIS_MAX_CHARS = env.int("MAIL_ANALYSIS_MAX_CHARS", default=24000)
+MAIL_ANALYSIS_EXTRA_BODY = env.json("MAIL_ANALYSIS_EXTRA_BODY", default={})
 
 
 def model_configuration(prefix, default_model, default_base_url):
@@ -156,6 +160,7 @@ LOGGING = {
         # runserver 默认不向根日志传播，需要显式使用带授权参数脱敏的处理器。
         "django.server": {"handlers": ["console"], "level": "INFO", "propagate": False},
         "httpx": {"level": "WARNING"},
+        "httpx2": {"level": "WARNING"},
         "httpcore": {"level": "WARNING"},
     },
 }
