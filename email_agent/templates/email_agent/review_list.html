@@ -7,8 +7,8 @@
   {% for proposal in page %}
     <article class="mail-card">
       <div class="row"><span class="muted">{{ proposal.get_kind_display }} · 第 {{ proposal.version }} 版</span><span class="status-badge" data-tone="{{ proposal.review_state|status_tone }}">{{ proposal.review_state|review_label }}</span></div>
-      <h3 style="margin-top: 12px;"><a href="{% url 'action_review' proposal.id %}">{% if proposal.kind == 'send_reply' %}{{ proposal.content.subject }}{% else %}{{ proposal.content.title }}{% endif %}</a></h3>
-      <p class="muted">来源：{{ proposal.analysis.source_snapshot.subject|default:"（无主题）" }} · {{ proposal.updated_at|date:"Y-m-d H:i" }}</p>
+      <h3 style="margin-top: 12px;"><a href="{% url 'action_review' proposal.id %}">{% if proposal.is_email %}{{ proposal.content.subject }}{% else %}{{ proposal.content.title }}{% endif %}</a></h3>
+      <p class="muted">{% if proposal.analysis_id %}来源：{{ proposal.analysis.source_snapshot.subject|default:"（无主题）" }}{% else %}新邮件 · {{ proposal.mailbox.email_address }}{% endif %} · {{ proposal.updated_at|date:"Y-m-d H:i" }}</p>
     </article>
   {% empty %}<div class="empty-state">还没有待审核的建议。打开邮件分析结果，选择回复草稿或任务候选进入审核。</div>{% endfor %}
   <div class="actions form-footer">

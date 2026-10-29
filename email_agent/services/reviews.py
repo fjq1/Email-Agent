@@ -43,7 +43,7 @@ def review_snapshot(message):
 
 def form_for(proposal, owner, data=None):
     initial = {**proposal.content, "version": proposal.version}
-    if proposal.kind == ActionProposal.Kind.REPLY:
+    if proposal.is_email:
         initial["to"] = ", ".join(initial.get("to", []))
         initial["cc"] = ", ".join(initial.get("cc", []))
         return ReplyContentForm(data, initial=initial)
@@ -57,8 +57,8 @@ def validate_form(proposal, owner, data):
     if form.cleaned_data["version"] != proposal.version:
         raise ValidationError("这份内容已被更新，请刷新页面后重新查看。")
     content = form.content()
-    if proposal.kind == ActionProposal.Kind.REPLY:
-        content["from"] = proposal.analysis.message.mailbox.email_address
+    if proposal.is_email:
+        content["from"] = proposal.mailbox.email_address
     return content
 
 
@@ -161,6 +161,8 @@ def prepare_proposal(analysis_id, owner, *, candidate_id=None):
             run = AgentRun.objects.create(owner=owner, kind="action_review")
             proposal = ActionProposal.objects.create(
                 analysis=analysis,
+                mailbox=analysis.message.mailbox,
+                preference_snapshot=analysis.source_snapshot.get("confirmed_preferences", {}),
                 candidate=candidate,
                 run=run,
                 kind=kind,
@@ -263,11 +265,13 @@ def check_approvable(proposal, owner):
     if fingerprint(proposal.content) != proposal.content_hash:
         raise ValidationError("保存内容的摘要不符，请重新保存后审核。")
     initial = dict(proposal.content, version=proposal.version)
-    if proposal.kind == ActionProposal.Kind.REPLY:
+    if proposal.is_email:
         initial.update(to=", ".join(initial["to"]), cc=", ".join(initial["cc"]))
         if "【待确认" in initial["body"] or "【待确认" in initial["subject"]:
             raise ValidationError("草稿仍包含【待确认】占位内容，请修改后再发送。")
-        account = proposal.analysis.message.mailbox
+        account = proposal.mailbox
+        if account.owner_id != owner.pk:
+            raise ValidationError("发件账户不属于当前用户。")
         if not account.can_send or account.status != "connected":
             raise ValidationError("请先为该邮箱启用发送权限，再确认发送。")
     validate_form(proposal, owner, initial)
@@ -316,7 +320,8 @@ def decide_proposal(proposal_id, owner, version, decision):
     try:
         with run_lock(proposal.run_id), transaction.atomic():
             proposal = (
-                ActionProposal.objects.select_for_update()
+                # 新邮件的 analysis 为空；只锁审核单，不能锁 LEFT JOIN 的空来源行。
+                ActionProposal.objects.select_for_update(of=("self",))
                 .select_related("analysis__message__mailbox")
                 .get(pk=proposal.id, run__owner=owner)
             )

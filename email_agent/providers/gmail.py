@@ -169,6 +169,12 @@ class GmailProvider(MailProvider):
         return self._message(data, full=True)
 
     def send_reply(self, token, source, content, operation_id):
+        return self._send(token, content, operation_id, source=source)
+
+    def send_mail(self, token, content, operation_id):
+        return self._send(token, content, operation_id)
+
+    def _send(self, token, content, operation_id, source=None):
         message = EmailMessage(policy=SMTP)
         message["From"] = content["from"]
         message["To"] = ", ".join(content["to"])
@@ -177,8 +183,12 @@ class GmailProvider(MailProvider):
         message["Subject"] = content["subject"]
         # 同一动作使用稳定 Message-ID，便于核对；它本身并不保证服务商去重。
         message["Message-ID"] = f"<email-agent-{operation_id}@{content['from'].rsplit('@', 1)[1]}>"
-        ids = re.findall(r"<[^<>\s]+@[^<>\s]+>", source.references or "")
-        parent = re.fullmatch(r"<[^<>\s]+@[^<>\s]+>", source.internet_message_id or "")
+        ids = re.findall(r"<[^<>\s]+@[^<>\s]+>", source.references or "") if source else []
+        parent = (
+            re.fullmatch(r"<[^<>\s]+@[^<>\s]+>", source.internet_message_id or "")
+            if source
+            else None
+        )
         if parent:
             message["In-Reply-To"] = parent.group()
             message["References"] = " ".join(dict.fromkeys([*ids[-19:], parent.group()]))

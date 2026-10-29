@@ -42,7 +42,9 @@ def _finish(execution, attempt, status, *, result=None, error=None):
 
 def execute_approved(proposal, decision_id):
     # 即使调用方持有旧对象，也要以数据库的当前运行、版本和审核状态为准。
-    proposal = ActionProposal.objects.select_related("run", "analysis__message__mailbox").get(
+    proposal = ActionProposal.objects.select_related(
+        "run", "mailbox", "analysis__message__mailbox"
+    ).get(
         pk=proposal.pk,
         run_id=proposal.run_id,
         version=proposal.version,
@@ -94,7 +96,7 @@ def execute_approved(proposal, decision_id):
     try:
         # 不依赖 Web 层已经做过的校验，恢复或命令调用也必须满足同样约束。
         data = {**content, "version": proposal.version}
-        if proposal.kind == ActionProposal.Kind.REPLY:
+        if proposal.is_email:
             data.update(to=", ".join(content["to"]), cc=", ".join(content["cc"]))
         validate_form(proposal, owner, data)
         if proposal.kind == ActionProposal.Kind.TASK:
@@ -127,16 +129,21 @@ def execute_approved(proposal, decision_id):
                     ActionExecution.Status.SUCCEEDED,
                     result={"task_id": str(task.id), "created": created},
                 )
-        message = proposal.analysis.message
-        source = read_message(message.mailbox_id, owner, message.id)
-        if message_digest(source) != approval.source_digest:
-            raise MailError(
-                "来源邮件已变化，未发送。请核对来源后重新编辑并审核。", "source_changed"
-            )
-        if content["from"] != source.mailbox.email_address:
+        account = proposal.mailbox
+        if account.owner_id != owner.pk:
+            raise MailError("发件账户不属于当前用户。", "sender_changed")
+        source = None
+        if proposal.kind == ActionProposal.Kind.REPLY:
+            message = proposal.analysis.message
+            source = read_message(message.mailbox_id, owner, message.id)
+            if message.mailbox_id != account.id or message_digest(source) != approval.source_digest:
+                raise MailError(
+                    "来源邮件已变化，未发送。请核对来源后重新编辑并审核。", "source_changed"
+                )
+        if content["from"] != account.email_address:
             raise MailError("发件账户信息已变化，请重新编辑并审核。", "sender_changed")
         token = _token(
-            source.mailbox_id,
+            account.id,
             owner,
             force_refresh=execution.last_error_code == "access_token_expired",
             allow_send=True,
@@ -146,12 +153,15 @@ def execute_approved(proposal, decision_id):
         execution.error_message = ""
         execution.save(update_fields=["status", "error_message", "updated_at"])
         posted = True
-        result = get_provider(source.mailbox.provider).send_reply(
-            token, source, content, execution.id
-        )
+        provider = get_provider(account.provider)
+        if source:
+            result = provider.send_reply(token, source, content, execution.id)
+        else:
+            # 新邮件不伪造来源邮件和回复头，使用服务商的新建发送接口。
+            result = provider.send_mail(token, content, execution.id)
         status = (
             ActionExecution.Status.ACCEPTED
-            if source.mailbox.provider == "outlook"
+            if account.provider == "outlook"
             else ActionExecution.Status.SUCCEEDED
         )
         return _finish(execution, attempt, status, result=result)

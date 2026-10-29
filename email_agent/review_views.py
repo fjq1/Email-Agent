@@ -9,6 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
+from email_agent.forms import DraftRevisionForm
 from email_agent.models import (
     ActionExecution,
     ActionProposal,
@@ -18,6 +19,7 @@ from email_agent.models import (
     TaskItem,
 )
 from email_agent.providers.base import MailError
+from email_agent.services.drafts import revise_draft
 from email_agent.services.reviews import (
     can_edit,
     can_restart,
@@ -34,7 +36,9 @@ from email_agent.services.reviews import (
 
 def owned_proposal(request, proposal_id):
     return get_object_or_404(
-        ActionProposal.objects.select_related("run", "analysis__message__mailbox", "candidate"),
+        ActionProposal.objects.select_related(
+            "run", "mailbox", "analysis__message__mailbox", "candidate"
+        ),
         pk=proposal_id,
         run__owner=request.user,
     )
@@ -92,6 +96,14 @@ def detail(request, proposal_id):
             "execution": execution,
             "editable": can_edit(proposal),
             "restartable": can_restart(proposal),
+            "revision_form": DraftRevisionForm(initial={"version": proposal.version})
+            if proposal.is_email and can_edit(proposal)
+            else None,
+            "draft_turns": list(
+                reversed(list(proposal.draft_turns.order_by("-created_at", "-id")[:10]))
+            )
+            if proposal.is_email
+            else [],
             "show_retry": retryable
             and proposal.run.status
             in {AgentRun.Status.FAILED, AgentRun.Status.RUNNING, AgentRun.Status.PENDING},
@@ -103,7 +115,7 @@ def detail(request, proposal_id):
             "source_item": proposal.analysis.task_sources.filter(
                 candidate_id=proposal.candidate_id
             ).first()
-            if proposal.candidate_id
+            if proposal.candidate_id and proposal.analysis_id
             else None,
         },
     )
@@ -168,6 +180,26 @@ def restart(request, proposal_id):
         show_error(request, exc)
     else:
         messages.success(request, "已重新开启待审核的新版本，请检查或修改内容，再确认执行。")
+    return redirect("action_review", proposal_id=proposal_id)
+
+
+@login_required
+@require_POST
+@never_cache
+def revise(request, proposal_id):
+    owned_proposal(request, proposal_id)
+    form = DraftRevisionForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "请填写最多 2000 字的修改要求，并从当前页面提交。")
+    else:
+        try:
+            proposal = revise_draft(proposal_id, request.user, **form.cleaned_data)
+        except ValidationError as exc:
+            show_error(request, exc)
+        else:
+            messages.success(
+                request, f"已保存第 {proposal.version} 版，请检查收件人、主题和正文，再确认发送。"
+            )
     return redirect("action_review", proposal_id=proposal_id)
 
 

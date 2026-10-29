@@ -1,5 +1,6 @@
 """邮件检索、分析与人工审核的输入校验，服务端统一验证地址、日期和版本。"""
 
+import uuid
 from email.utils import getaddresses
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -48,6 +49,22 @@ class MailAnalysisForm(forms.Form):
 class VersionedForm(forms.Form):
     # 隐藏版本号用于拒绝旧页面的保存与审批，不把浏览器输入当作最终批准内容。
     version = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
+
+
+class DraftRevisionForm(VersionedForm):
+    """每次打开页面分配一次请求标识，重复提交不会多次调用模型。"""
+
+    instruction = forms.CharField(
+        label="告诉助理如何修改",
+        max_length=2000,
+        widget=forms.Textarea(
+            attrs={
+                "rows": 3,
+                "placeholder": "例如：再简洁一些，保留会议时间；称呼和结尾也改成中文。",
+            }
+        ),
+    )
+    request_id = forms.UUIDField(widget=forms.HiddenInput, initial=uuid.uuid4)
 
 
 class ReplyContentForm(VersionedForm):

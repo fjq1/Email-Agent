@@ -10,7 +10,13 @@
   {% if plan.error_message %}<p class="warning">{{ plan.error_message }}</p>{% endif %}
   {% if plan.spec %}
     <p>处理目标：{{ action_label }}。{{ plan.spec.explanation }}</p>
-    <p>本次回复方式：{% for item in request_style %}{{ item.label }}：{{ item.display_value }}{% if not forloop.last %}；{% endif %}{% empty %}沿用已确认偏好；没有偏好时跟随来信语言。{% endfor %}</p>
+    <p>本次写信方式：{% for item in request_style %}{{ item.label }}：{{ item.display_value }}{% if not forloop.last %}；{% endif %}{% empty %}沿用已确认偏好；未设置时，回复按来信、新邮件按写信要求的主要语言。{% endfor %}</p>
+    {% if plan.spec.action == 'compose_email' %}
+      <dl class="task-facts"><div><dt>收件人</dt><dd>{{ plan.spec.compose.to|join:"，" }}</dd></div><div><dt>抄送</dt><dd>{{ plan.spec.compose.cc|join:"，"|default:"无" }}</dd></div></dl>
+      <p>写信要求：{{ plan.spec.compose.brief }}</p>
+      <p class="notice">新邮件无需检索。草稿准备好后，在下方打开审核页，可以继续对话修改或手动编辑，确认后才发送。</p>
+      {% if not actions and plan.status != 'cancelled' %}<form method="post" action="{% url 'command_act' plan.id 'compose' %}">{% csrf_token %}<input type="hidden" name="version" value="{{ plan.version }}"><button>生成 / 重试新邮件草稿</button></form>{% endif %}
+    {% else %}
     <p>范围：{% if plan.spec.filters.folder == 'inbox' %}收件箱{% elif plan.spec.filters.folder == 'sent' %}已发送{% else %}服务商默认全邮箱范围{% endif %} · 最多 {{ plan.spec.limit }} 封</p>
     <p>收到日期：{{ plan.spec.filters.date_from|default:"不限" }} 至 {{ plan.spec.filters.date_to|default:"不限" }}（含结束日）</p>
     <p>发件人：{{ plan.spec.filters.sender|default:"不限" }} · 收件人：{{ plan.spec.filters.recipient|default:"不限" }} · 主题：{{ plan.spec.filters.subject|default:"不限" }}</p>
@@ -20,6 +26,7 @@
     {% if allow_edit %}<p><a href="{% url 'command_edit' plan.id %}">修改检索条件与本次回复方式</a></p>{% endif %}
     {% if not plan.searched_at and plan.status != 'cancelled' and plan.spec.action != 'preference_only' and plan.spec.action != 'unsupported' %}
       <form method="post" action="{% url 'command_act' plan.id 'search' %}">{% csrf_token %}<input type="hidden" name="version" value="{{ plan.version }}"><button>按此范围检索</button></form>
+    {% endif %}
     {% endif %}
   {% elif plan.status != 'cancelled' %}
     <form method="post" action="{% url 'command_act' plan.id 'parse' %}">{% csrf_token %}<button>重试解析指令</button></form>
@@ -87,11 +94,11 @@
       <article class="mail-card">
         {% if action.selectable and plan.status != 'cancelled' %}<label><input type="checkbox" name="action_ids" value="{{ action.id }}" checked> 选择执行此动作</label>{% endif %}
         <h3>{{ action.proposal.get_kind_display }} · 第 {{ action.proposal.version }} 版</h3>
-        <p><a href="{% url 'action_review' action.proposal_id %}">打开单项审核</a> · <span class="status-badge" data-tone="{{ action.proposal.review_state|status_tone }}">{{ action.proposal.review_state|review_label }}</span>{% if action.execution %} · <span class="status-badge" data-tone="{{ action.execution.status|status_tone }}">{{ action.execution.get_status_display }}</span>{% endif %}</p>
+        <p><a href="{% url 'action_review' action.proposal_id %}">{% if action.proposal.is_email %}打开审核 / 对话修改草稿{% else %}打开单项审核{% endif %}</a> · <span class="status-badge" data-tone="{{ action.proposal.review_state|status_tone }}">{{ action.proposal.review_state|review_label }}</span>{% if action.execution %} · <span class="status-badge" data-tone="{{ action.execution.status|status_tone }}">{{ action.execution.get_status_display }}</span>{% endif %}</p>
         {% if action.stale %}<p class="warning">内容已变化，更新批量预览后才能选择。</p>{% endif %}
         {% if action.reused %}<p class="warning">此事项已有审核单，保留了此前内容和用户修改。请比较本次新分析，需调整时进入单项编辑。</p>{% endif %}
         {% if action.error_message %}<p class="warning">{{ action.error_message }}</p>{% endif %}
-        {% if action.proposal.kind == 'send_reply' %}
+        {% if action.proposal.is_email %}
           <p>发件邮箱：{{ action.proposal.content.from }} · 收件人：{{ action.proposal.content.to|join:"，" }}</p>
           {% if action.proposal.content.cc %}<p>抄送：{{ action.proposal.content.cc|join:"，" }}</p>{% endif %}
           <h4>{{ action.proposal.content.subject }}</h4><pre class="mail-body">{{ action.proposal.content.body }}</pre>

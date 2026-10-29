@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from email_agent.command_forms import CommandSpecForm, clean_zone
 from email_agent.intelligence.commands import CommandSpec, parse_command
+from email_agent.intelligence.drafting import generate_draft
 from email_agent.intelligence.understanding import UnderstandingError
 from email_agent.models import (
     ActionExecution,
@@ -23,6 +24,7 @@ from email_agent.models import (
 from email_agent.providers.base import MailError
 from email_agent.services.analysis import analyze_message
 from email_agent.services.audit import record_event
+from email_agent.services.drafts import prepare_new_proposal
 from email_agent.services.mailboxes import read_message, search_messages
 from email_agent.services.preferences import effective_preferences, save_preference
 from email_agent.services.reviews import check_approvable, decide_proposal, prepare_proposal
@@ -87,7 +89,8 @@ def create_command(owner, *, mailbox, instruction, timezone_name="", submission_
         )
         if plan and plan.run.owner_id != owner.pk:
             raise ValidationError("无效的提交标识，请重新打开指令页面。")
-        if plan is None:
+        created = plan is None
+        if created:
             run = AgentRun.objects.create(owner=owner, kind="mail_command")
             plan = CommandPlan.objects.create(
                 run=run,
@@ -100,7 +103,52 @@ def create_command(owner, *, mailbox, instruction, timezone_name="", submission_
                 model_name=settings.MODEL_PROVIDERS[settings.MAIL_ANALYSIS_PROVIDER]["model"],
             )
             record_event(run, "command_created", f"command:{plan.id}", mailbox_id=str(mailbox.id))
-    return parse_plan(plan.id, owner)
+    plan = parse_plan(plan.id, owner)
+    if created and plan.spec.get("action") == "compose_email":
+        return compose_plan(plan.id, owner, plan.version)
+    return plan
+
+
+def compose_plan(plan_id, owner, version):
+    """新邮件不检索邮箱；生成结果先落库，再建立同一份待审核草稿。"""
+    with locked_plan(plan_id, owner) as plan:
+        require_version(plan, version)
+        if plan.spec.get("action") != "compose_email":
+            raise ValidationError("当前计划不是新邮件写信请求。")
+        if plan.approved_manifest or plan.actions.exists():
+            return plan
+        try:
+            set_status(plan, CommandPlan.Status.PROCESSING)
+            if not plan.draft_result:
+                request = plan.spec["compose"]
+                plan.draft_result = generate_draft(
+                    mode="compose",
+                    instruction=plan.instruction,
+                    current={
+                        "from": plan.mailbox.email_address,
+                        "to": request["to"],
+                        "cc": request["cc"],
+                        "subject": request["subject"],
+                        "body": "",
+                    },
+                    preferences=plan.preference_snapshot,
+                    options=plan.spec["options"],
+                )
+                plan.save(update_fields=["draft_result", "updated_at"])
+            proposal = prepare_new_proposal(plan, owner, plan.draft_result)
+            CommandAction.objects.get_or_create(
+                plan=plan,
+                proposal=proposal,
+                defaults={
+                    "proposal_version": proposal.version,
+                    "content_hash": proposal.content_hash,
+                },
+            )
+            plan.selection_locked_at = timezone.now()
+            set_status(plan, CommandPlan.Status.READY)
+        except Exception as exc:
+            set_status(plan, CommandPlan.Status.FAILED, safe_error(exc))
+    return plan
 
 
 def parse_plan(plan_id, owner):
@@ -145,6 +193,8 @@ def plan_initial(plan):
 
 def save_plan(plan_id, owner, data):
     with locked_plan(plan_id, owner) as plan:
+        if plan.spec.get("action") == "compose_email":
+            raise ValidationError("新邮件请在草稿审核页手动或通过对话修改。")
         if plan.selection_locked_at or plan.approved_manifest:
             raise ValidationError("已开始分析的范围不能修改；请新建指令。")
         form = CommandSpecForm(data)
@@ -173,7 +223,11 @@ def require_version(plan, version):
 def search_plan(plan_id, owner, version):
     with locked_plan(plan_id, owner) as plan:
         require_version(plan, version)
-        if not plan.spec or plan.spec["action"] in {"unsupported", "preference_only"}:
+        if not plan.spec or plan.spec["action"] in {
+            "unsupported",
+            "preference_only",
+            "compose_email",
+        }:
             raise ValidationError("当前计划不能检索，请先修改范围或确认偏好。")
         if plan.searched_at or plan.selection_locked_at:
             return plan

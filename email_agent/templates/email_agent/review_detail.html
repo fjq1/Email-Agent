@@ -4,7 +4,7 @@
 {% block content %}
 <div class="breadcrumb"><a href="{% url 'action_reviews' %}">审核记录</a><span>/</span><span>审核详情</span></div>
 <div class="page-heading">
-  <div><p class="eyebrow">REVIEW &amp; CONFIRM</p><h1>{% if proposal.kind == 'send_reply' %}回复审核{% else %}待办审核{% endif %}</h1><p>核对这份建议，由你决定下一步。</p></div>
+  <div><p class="eyebrow">REVIEW &amp; CONFIRM</p><h1>{% if proposal.kind == 'send_email' %}新邮件审核{% elif proposal.is_email %}回复审核{% else %}待办审核{% endif %}</h1><p>核对这份建议，由你决定下一步。</p></div>
   <span class="status-badge" data-tone="{{ proposal.review_state|status_tone }}">{{ proposal.review_state|review_label }}</span>
 </div>
 <div class="review-steps" aria-label="审核进度">
@@ -15,9 +15,9 @@
 <div class="review-layout">
   <div>
     <section>
-      <div class="preview-caption"><svg class="icon"><use href="{% if proposal.kind == 'send_reply' %}#i-mail{% else %}#i-task{% endif %}"/></svg>当前保存的{% if proposal.kind == 'send_reply' %}回复{% else %}待办{% endif %}<span class="version-tag">第 {{ proposal.version }} 版</span></div>
+      <div class="preview-caption"><svg class="icon"><use href="{% if proposal.is_email %}#i-mail{% else %}#i-task{% endif %}"/></svg>当前保存的{% if proposal.is_email %}回复{% else %}待办{% endif %}<span class="version-tag">第 {{ proposal.version }} 版</span></div>
       {# 预览和确认始终绑定保存版本，不从确认表单接收收件人或正文。 #}
-      {% if proposal.kind == 'send_reply' %}
+      {% if proposal.is_email %}
         <dl class="envelope-meta">
           <div><dt>发件邮箱</dt><dd>{{ proposal.content.from }}</dd></div>
           <div><dt>收件人</dt><dd>{{ proposal.content.to|join:"，" }}</dd></div>
@@ -25,12 +25,33 @@
         </dl>
         <h2 class="review-subject">{{ proposal.content.subject }}</h2>
         <pre class="mail-body message-paper">{{ proposal.content.body }}</pre>
-        <p class="muted">仅发送以上正文，不附带原邮件附件。Gmail 修改主题后可能形成新会话。</p>
+        <p class="muted">仅发送以上正文，不附带附件。{% if proposal.kind == 'send_reply' %}Gmail 修改主题后可能形成新会话。{% endif %}</p>
       {% else %}
         {% include "email_agent/task_content.html" with content=proposal.content %}
       {% endif %}
     </section>
+    {% if proposal.is_email %}
+    <section id="draft-conversation">
+      <div class="section-header"><h2>和助理一起修改</h2><span class="status-badge" data-tone="neutral">当前第 {{ proposal.version }} 版</span></div>
+      <p class="muted">可以连续要求“再简洁一些”“补充会议安排”或“改为英文”。每轮只更新草稿，不会发送；收件人如需变更，请写出完整地址。</p>
+      <div class="draft-conversation">
+        {% for turn in draft_turns %}
+          <article class="draft-turn">
+            <p class="muted">你的要求 · {{ turn.created_at|date:"m-d H:i" }}{% if turn.base_version %} · 基于第 {{ turn.base_version }} 版{% endif %}</p>
+            <blockquote>{{ turn.instruction }}</blockquote>
+            {% if turn.status == 'succeeded' %}
+              <p class="assistant-summary"><strong>助理</strong> · {{ turn.summary }} <span class="status-badge" data-tone="success">已保存第 {{ turn.result_version }} 版</span></p>
+              <details><summary>查看这轮保存的草稿</summary><p class="muted">收件人：{{ turn.after.to|join:"，" }}{% if turn.after.cc %} · 抄送：{{ turn.after.cc|join:"，" }}{% endif %}</p><h4>{{ turn.after.subject }}</h4><pre class="mail-body">{{ turn.after.body }}</pre></details>
+            {% elif turn.error_message %}<p class="warning">{{ turn.error_message }}</p>{% else %}<p class="muted">这轮尚未完成；若请求已中断，可在下方重新提交要求。</p>{% endif %}
+          </article>
+        {% empty %}<p class="empty-state">告诉助理希望调整什么，当前草稿会作为修改起点。</p>{% endfor %}
+      </div>
+      {% if revision_form %}<form method="post" action="{% url 'action_review_revise' proposal.id %}" class="draft-revision-form">{% csrf_token %}{{ revision_form.as_p }}<button>让助理修改草稿</button></form>{% else %}<p class="muted">当前状态不能修改。未执行且已结束的建议，可以先点击“重新处理”。</p>{% endif %}
+      <p class="muted">显示最近 10 轮。修改后的内容请在上方预览，并重新确认发送。</p>
+    </section>
+    {% endif %}
     <section>
+      {% if proposal.analysis_id %}
       <div class="section-header"><h2>来源与依据</h2><a href="{% url 'mail_analysis' proposal.analysis_id %}">查看完整分析 →</a></div>
       <details>
         <summary>本版本的来源邮件</summary>
@@ -48,6 +69,7 @@
         {% endif %}
         {% if proposal.analysis.payload.uncertainties %}<ul class="warning">{% for text in proposal.analysis.payload.uncertainties %}<li>{{ text }}</li>{% endfor %}</ul>{% endif %}
       </details>
+      {% else %}<h2>最初的写信要求</h2><blockquote>{{ proposal.source_snapshot.instruction }}</blockquote><p class="muted">这是一封新邮件，不关联来源会话。</p>{% endif %}
     </section>
     {% if decisions or attempts %}
     <section class="history-section">
@@ -55,12 +77,12 @@
       {% for decision in decisions %}
         <details>
           <summary><span>第 {{ decision.version }} 版 · {{ decision.decision|review_label }}</span><span>{{ decision.created_at|date:"Y-m-d H:i" }}</span></summary>
-          <p class="muted">由 {{ decision.actor.username }} 确认 · 来源：{{ decision.source_snapshot.subject }}</p>
-          {% if proposal.kind == 'send_reply' %}
+          <p class="muted">由 {{ decision.actor.username }} 确认 · {% if proposal.analysis_id %}来源：{{ decision.source_snapshot.subject|default:"（无主题）" }}{% else %}根据用户写信要求起草{% endif %}</p>
+          {% if proposal.is_email %}
             <dl class="envelope-meta"><div><dt>发件邮箱</dt><dd>{{ decision.snapshot.from }}</dd></div><div><dt>收件人</dt><dd>{{ decision.snapshot.to|join:"，" }}</dd></div>{% if decision.snapshot.cc %}<div><dt>抄送</dt><dd>{{ decision.snapshot.cc|join:"，" }}</dd></div>{% endif %}</dl>
             <h4>{{ decision.snapshot.subject }}</h4><pre class="mail-body">{{ decision.snapshot.body }}</pre>
           {% else %}{% include "email_agent/task_content.html" with content=decision.snapshot dependencies=None %}{% endif %}
-          <details><summary>当时的来源快照</summary><pre class="mail-body">{{ decision.source_snapshot.body_text }}</pre></details>
+          <details><summary>当时的来源快照</summary><pre class="mail-body">{% if proposal.analysis_id %}{{ decision.source_snapshot.body_text }}{% else %}{{ decision.source_snapshot.instruction }}{% endif %}</pre></details>
         </details>
       {% endfor %}
       {% if attempts %}<details><summary>执行尝试</summary><ul>{% for attempt in attempts %}<li>第 {{ attempt.number }} 次 · <span class="status-badge" data-tone="{{ attempt.status|status_tone }}">{{ attempt.get_status_display }}</span> · {{ attempt.started_at|date:"Y-m-d H:i:s" }}</li>{% endfor %}</ul></details>{% endif %}
@@ -71,15 +93,15 @@
     <section>
       {% if proposal.review_state == 'pending' %}
         <p class="eyebrow">YOUR DECISION</p><h2>确认下一步</h2>
-        <p>确认后将{% if proposal.kind == 'send_reply' %}发送左侧保存的回复{% else %}创建左侧预览的正式待办{% endif %}。需要调整时，先修改并保存。</p>
-        {% if proposal.kind == 'send_reply' and not proposal.analysis.message.mailbox.can_send %}
+        <p>确认后将{% if proposal.is_email %}发送上方保存的邮件{% else %}创建预览中的正式待办{% endif %}。需要调整时，先修改并保存。</p>
+        {% if proposal.is_email and not proposal.mailbox.can_send %}
           <div class="notice">此邮箱尚未授予发送权限，当前只能编辑或不执行。</div>
-          <form method="post" action="{% url 'mailbox_connect' proposal.analysis.message.mailbox.provider %}">{% csrf_token %}<input type="hidden" name="account_id" value="{{ proposal.analysis.message.mailbox_id }}"><input type="hidden" name="allow_send" value="1"><button class="secondary">启用发送权限</button></form>
+          <form method="post" action="{% url 'mailbox_connect' proposal.mailbox.provider %}">{% csrf_token %}<input type="hidden" name="account_id" value="{{ proposal.mailbox_id }}"><input type="hidden" name="allow_send" value="1"><button class="secondary">启用发送权限</button></form>
           <p><a href="{% url 'mailbox_setup' %}">查看配置说明</a></p>
         {% endif %}
         <form method="post" action="{% url 'action_review_decide' proposal.id %}" class="decision-actions">
           {% csrf_token %}<input type="hidden" name="version" value="{{ proposal.version }}">
-          {% if proposal.kind != 'send_reply' or proposal.analysis.message.mailbox.can_send %}<button name="decision" value="approve">{% if proposal.kind == 'send_reply' %}确认并发送{% else %}确认并创建待办{% endif %}</button>{% endif %}
+          {% if not proposal.is_email or proposal.mailbox.can_send %}<button name="decision" value="approve">{% if proposal.is_email %}确认并发送{% else %}确认并创建待办{% endif %}</button>{% endif %}
           {% if editable %}<a class="button-link secondary" href="{% url 'action_review_edit' proposal.id %}">修改内容</a>{% endif %}
           <button class="danger" name="decision" value="dismiss">不执行此建议</button>
         </form>

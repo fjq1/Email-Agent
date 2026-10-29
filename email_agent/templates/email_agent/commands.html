@@ -5,7 +5,7 @@
 <div class="page-heading"><div><p class="eyebrow">ASK YOUR ASSISTANT</p><h1>指令处理</h1><p>从一句话开始，查找邮件、整理事项或准备回复。</p></div></div>
 <section>
   <h2>这次想处理什么？</h2>
-  <p class="muted">先查看可修改的计划，再选择邮件处理。发送与创建正式待办仍需你确认。</p>
+  <p class="muted">可以检索处理邮件，也可以直接要求“向 example@gmail.com 写一封邮件，说明……”。新邮件会自动准备草稿，审核页支持连续对话修改，确认前不会发送。</p>
   <form method="post">
     {% csrf_token %}{{ form.as_p }}
     <button>解析指令，查看计划</button>

@@ -127,6 +127,12 @@ textarea[readonly] { background: #f7f9fb; }
 .editor-form textarea[name=description], .editor-form textarea[name=dependency_notes] { min-height: 110px; }
 .form-footer { padding-top: 20px; border-top: 1px solid var(--line); margin-top: 24px; }
 .empty-state { padding: 32px 20px; text-align: center; color: var(--muted); background: #f8fafb; border: 1px dashed #d8e2e9; border-radius: 10px; }
+.draft-conversation { max-height: 520px; overflow-y: auto; padding-right: 6px; }
+.draft-turn { padding: 12px 0 18px; border-bottom: 1px solid var(--line); }
+.draft-turn:first-child { padding-top: 0; }
+.assistant-summary { padding: 12px 16px; border-radius: 9px; background: var(--accent-soft); color: #315f53; font-size: 13px; }
+.draft-revision-form { margin-top: 20px; }
+.draft-revision-form textarea { min-height: 100px; }
 /* 审核主栏只承载实际内容；侧栏集中呈现状态和当前可执行的操作。 */
 .breadcrumb { display: flex; align-items: center; gap: 9px; font-size: 12px; color: #93a0ad; margin-bottom: 24px; }
 .review-layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 22px; align-items: start; }

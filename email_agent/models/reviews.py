@@ -6,6 +6,7 @@ from django.conf import settings
 from django.db import models
 
 from .analysis import AnalysisResult, TaskCandidate
+from .mailboxes import MailboxAccount
 from .operations import AgentRun, TimestampedModel
 
 
@@ -13,6 +14,7 @@ class ActionProposal(TimestampedModel):
     class Kind(models.TextChoices):
         TASK = "create_task", "创建待办"
         REPLY = "send_reply", "发送回复"
+        COMPOSE = "send_email", "发送新邮件"
 
     class ReviewState(models.TextChoices):
         PENDING = "pending", "待审核"
@@ -21,7 +23,12 @@ class ActionProposal(TimestampedModel):
         CANCELLED = "cancelled", "已取消"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    analysis = models.ForeignKey(AnalysisResult, on_delete=models.PROTECT, related_name="proposals")
+    analysis = models.ForeignKey(
+        AnalysisResult, on_delete=models.PROTECT, related_name="proposals", null=True, blank=True
+    )
+    # 新邮件没有来源分析；发件账户独立保存，所有邮件动作共用同一权限边界。
+    mailbox = models.ForeignKey(MailboxAccount, on_delete=models.PROTECT)
+    preference_snapshot = models.JSONField("草稿采用的已确认偏好", default=dict)
     candidate = models.ForeignKey(TaskCandidate, on_delete=models.PROTECT, null=True, blank=True)
     run = models.OneToOneField(AgentRun, on_delete=models.PROTECT, related_name="proposal")
     kind = models.CharField("动作", max_length=24, choices=Kind)
@@ -36,10 +43,42 @@ class ActionProposal(TimestampedModel):
         "审核状态", max_length=16, choices=ReviewState, default=ReviewState.PENDING
     )
 
+    @property
+    def is_email(self):
+        return self.kind in {self.Kind.REPLY, self.Kind.COMPOSE}
+
     class Meta:
         ordering = ["-updated_at"]
         verbose_name = "动作审核单"
         verbose_name_plural = verbose_name
+
+
+class DraftTurn(TimestampedModel):
+    """一次用户要求及对应草稿版本，先保存请求，再调用模型，失败也有明确记录。"""
+
+    class Status(models.TextChoices):
+        GENERATING = "generating", "正在修改"
+        SUCCEEDED = "succeeded", "已保存新版本"
+        FAILED = "failed", "修改未完成"
+
+    proposal = models.ForeignKey(
+        ActionProposal, on_delete=models.PROTECT, related_name="draft_turns"
+    )
+    request_id = models.UUIDField(default=uuid.uuid4, unique=True)
+    instruction = models.TextField("用户的写信或修改要求")
+    base_version = models.PositiveIntegerField()
+    result_version = models.PositiveIntegerField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=Status, default=Status.GENERATING)
+    before = models.JSONField("修改前的草稿", default=dict)
+    after = models.JSONField("修改后的草稿", default=dict)
+    summary = models.CharField("修改说明", max_length=600, blank=True)
+    provider = models.CharField(max_length=16, blank=True)
+    model_name = models.CharField(max_length=200, blank=True)
+    usage = models.JSONField(default=dict)
+    error_message = models.CharField(max_length=400, blank=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
 
 
 class ApprovalDecision(models.Model):

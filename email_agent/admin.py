@@ -9,6 +9,7 @@ from email_agent.models import (
     ApprovalDecision,
     AuditEvent,
     CommandPlan,
+    DraftTurn,
     EmailMessage,
     MailboxAccount,
     OperationRecord,
@@ -104,3 +105,8 @@ class CommandPlanAdmin(ReadOnlyAdmin):
 @admin.register(UserPreference)
 class UserPreferenceAdmin(ReadOnlyAdmin):
     list_display = ("owner", "mailbox", "key", "enabled", "version", "confirmed_at")
+
+
+@admin.register(DraftTurn)
+class DraftTurnAdmin(ReadOnlyAdmin):
+    list_display = ("proposal", "base_version", "result_version", "status", "created_at")

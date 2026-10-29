@@ -78,7 +78,9 @@ def detail(request, plan_id):
         action.dependencies = TaskItem.objects.filter(
             owner=request.user, pk__in=proposal.content.get("dependencies", [])
         )
-        action.reused = proposal.analysis_id != action.item.analysis_id
+        action.reused = (
+            action.item_id is not None and proposal.analysis_id != action.item.analysis_id
+        )
     suggestions = []
     for index, suggestion in enumerate(plan.spec.get("preference_suggestions", [])):
         existing = UserPreference.objects.filter(
@@ -117,6 +119,7 @@ def detail(request, plan_id):
             "has_failed_items": plan.items.filter(selected=True, status="failed").exists(),
             "has_selectable_actions": any(item.selectable for item in actions),
             "allow_edit": bool(plan.spec)
+            and plan.spec.get("action") != "compose_email"
             and not plan.selection_locked_at
             and plan.status != "cancelled",
         },
@@ -149,7 +152,11 @@ def act(request, plan_id, operation):
     version = request.POST.get("version")
     try:
         if operation == "parse":
-            commands.parse_plan(plan_id, request.user)
+            plan = commands.parse_plan(plan_id, request.user)
+            if plan.spec.get("action") == "compose_email":
+                commands.compose_plan(plan_id, request.user, plan.version)
+        elif operation == "compose":
+            commands.compose_plan(plan_id, request.user, version)
         elif operation == "search":
             commands.search_plan(plan_id, request.user, version)
         elif operation in {"process", "retry"}:

@@ -124,20 +124,27 @@ class OutlookProvider(MailProvider):
             "scopes": result.get("scope", "").split() or saved.get("scopes", OUTLOOK_SCOPES),
         }
 
+    @staticmethod
+    def _outgoing_message(content):
+        return {
+            "subject": content["subject"],
+            "body": {"contentType": "Text", "content": content["body"]},
+            "toRecipients": [{"emailAddress": {"address": address}} for address in content["to"]],
+            "ccRecipients": [{"emailAddress": {"address": address}} for address in content["cc"]],
+        }
+
+    def send_mail(self, token, content, operation_id):
+        return self.post_json(
+            token,
+            f"{API}/me/sendMail",
+            {"message": self._outgoing_message(content)},
+            accepted_status=202,
+            operation_id=operation_id,
+        )
+
     def send_reply(self, token, source, content, operation_id):
         # 使用原生 reply 保留会话关系，所有可编辑字段均来自已批准的内容快照。
-        payload = {
-            "message": {
-                "subject": content["subject"],
-                "body": {"contentType": "Text", "content": content["body"]},
-                "toRecipients": [
-                    {"emailAddress": {"address": address}} for address in content["to"]
-                ],
-                "ccRecipients": [
-                    {"emailAddress": {"address": address}} for address in content["cc"]
-                ],
-            }
-        }
+        payload = {"message": self._outgoing_message(content)}
         return self.post_json(
             token,
             f"{API}/me/messages/{quote(source.provider_message_id, safe='')}/reply",

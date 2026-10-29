@@ -77,6 +77,7 @@ class CommandPlan(TimestampedModel):
     provider = models.CharField(max_length=16)
     model_name = models.CharField(max_length=200)
     usage = models.JSONField(default=dict)
+    draft_result = models.JSONField("已生成的新邮件草稿，供中断后复用", default=dict)
     native_query = models.TextField(blank=True)
     scanned = models.PositiveIntegerField(default=0)
     has_more = models.BooleanField(default=False)
@@ -113,7 +114,7 @@ class CommandItem(TimestampedModel):
 
 class CommandAction(models.Model):
     plan = models.ForeignKey(CommandPlan, on_delete=models.CASCADE, related_name="actions")
-    item = models.ForeignKey(CommandItem, on_delete=models.CASCADE)
+    item = models.ForeignKey(CommandItem, on_delete=models.CASCADE, null=True, blank=True)
     proposal = models.ForeignKey(ActionProposal, on_delete=models.PROTECT)
     proposal_version = models.PositiveIntegerField()
     content_hash = models.CharField(max_length=64)

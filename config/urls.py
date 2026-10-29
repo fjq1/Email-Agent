@@ -43,6 +43,7 @@ urlpatterns = [
     path("reviews/<uuid:proposal_id>/decide/", review_views.decide, name="action_review_decide"),
     path("reviews/<uuid:proposal_id>/resume/", review_views.resume, name="action_review_resume"),
     path("reviews/<uuid:proposal_id>/restart/", review_views.restart, name="action_review_restart"),
+    path("reviews/<uuid:proposal_id>/revise/", review_views.revise, name="action_review_revise"),
     path("tasks/", review_views.task_list, name="tasks"),
     path("tasks/<uuid:task_id>/", review_views.task_detail, name="task_detail"),
     path("mailboxes/oauth/<str:provider>/connect/", mail_views.connect, name="mailbox_connect"),

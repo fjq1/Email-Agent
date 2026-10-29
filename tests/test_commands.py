@@ -16,7 +16,9 @@ from django.urls import reverse
 from email_agent.models import (
     ActionExecution,
     ActionProposal,
+    AnalysisResult,
     CommandPlan,
+    DraftTurn,
     TaskItem,
     UserPreference,
 )
@@ -50,12 +52,15 @@ def model_api(monkeypatch, settings):
         "explanation": "先核对范围，再处理所选邮件。",
     }
     captured = []
+    draft_outputs = []
 
     def respond(request):
         payload = json.loads(request.content)
         value = json.loads(payload["messages"][1]["content"])
         captured.append(value)
-        if "instruction" in value:
+        if "draft_mode" in value:
+            result = draft_outputs.pop(0)
+        elif "instruction" in value:
             result = spec
         else:
             evidence = {"field": "body_text", "quote": BODY}
@@ -118,7 +123,7 @@ def model_api(monkeypatch, settings):
         monkeypatch.setattr(
             openai, "OpenAI", lambda **options: original(**{**options, "http_client": client})
         )
-        yield spec, captured
+        yield spec, captured, draft_outputs
 
 
 @pytest.fixture
@@ -150,7 +155,13 @@ def mail_api(mail_http, monkeypatch):
 
     def respond(request):
         calls.append(request)
-        assert request.method == "GET", "此测试的批量动作只能创建内部待办，不能暗中发信"
+        if request.method == "POST":
+            return httpx.Response(
+                202 if request.url.host == "graph.microsoft.com" else 200,
+                json={}
+                if request.url.host == "graph.microsoft.com"
+                else {"id": "new-mail", "threadId": "new-thread"},
+            )
         if request.url.host == "gmail.googleapis.com":
             if request.url.path.endswith("/messages"):
                 return httpx.Response(
@@ -349,3 +360,128 @@ def test_command_preference_requires_its_own_confirmation_and_owner(
         == 404
     )
     assert client.get(reverse("preference_edit", args=[preference.id])).status_code == 404
+
+
+@pytest.mark.parametrize("provider", ["gmail", "outlook"])
+def test_compose_command_conversation_then_explicit_send(
+    client, owner, mailbox, model_api, mail_api, provider, django_user_model
+):
+    """双平台写信主流程：两轮修改、错误不覆盖、最后明确确认才发送。"""
+    from email import policy
+    from email.parser import BytesParser
+
+    from email_agent.services.reviews import decide_proposal
+
+    mailbox.provider, mailbox.can_send = provider, True
+    mailbox.save()
+    save_preference(owner, key="signature", value="测试签名")
+    model_api[0].update(
+        action="compose_email",
+        compose={"to": ["recipient@example.com"], "cc": [], "subject": "", "brief": "邀请讨论项目"},
+    )
+    model_api[2].extend(
+        [
+            {
+                "subject": "项目讨论邀请",
+                "body": "你好，希望与你讨论项目。",
+                "summary": "已起草项目邀请。",
+            },
+            {
+                "subject": "项目讨论邀请",
+                "body": "你好，方便时一起讨论项目吗？",
+                "summary": "语气更友好。",
+            },
+            {
+                "subject": "下周项目讨论",
+                "body": "你好，方便时一起讨论项目吗？时间可安排在下周。",
+                "cc": ["copy@example.com"],
+                "summary": "补充时间并增加抄送。",
+            },
+            {
+                "subject": "不应覆盖",
+                "body": "不应覆盖",
+                "to": ["invented@example.com"],
+                "summary": "错误的收件人。",
+            },
+        ]
+    )
+    client.force_login(owner)
+    data = {
+        "mailbox": mailbox.id,
+        "instruction": "向 recipient@example.com 发一封邮件，邀请讨论项目。",
+        "submission_key": uuid.uuid4(),
+    }
+    assert client.post(reverse("commands"), data, follow=True).status_code == 200
+    plan = CommandPlan.objects.get()
+    proposal = plan.actions.get().proposal
+    assert proposal.kind == "send_email" and proposal.analysis_id is None
+    assert proposal.mailbox_id == mailbox.id and plan.status == "ready"
+    assert not AnalysisResult.objects.exists() and not mail_api
+    assert client.post(reverse("commands"), data).status_code == 302
+    assert len(model_api[1]) == 2
+    page = client.get(reverse("action_review", args=[proposal.id]))
+    assert "新邮件审核" in page.content.decode() and "让助理修改草稿" in page.content.decode()
+    first = {"version": 1, "instruction": "再友好一些。", "request_id": uuid.uuid4()}
+    assert (
+        client.post(
+            reverse("action_review_revise", args=[proposal.id]), first, follow=True
+        ).status_code
+        == 200
+    )
+    client.post(reverse("action_review_revise", args=[proposal.id]), first)
+    assert len(model_api[1]) == 3
+    client.post(
+        reverse("action_review_revise", args=[proposal.id]),
+        {
+            "version": 2,
+            "instruction": "补充可安排在下周，主题改为下周项目讨论，抄送 copy@example.com。",
+            "request_id": uuid.uuid4(),
+        },
+        follow=True,
+    )
+    proposal.refresh_from_db()
+    assert proposal.version == 3 and proposal.review_state == "pending"
+    assert "方便时" in model_api[1][3]["current_draft"]["body"]
+    assert model_api[1][3]["conversation"][-1]["instruction"] == "再友好一些。"
+    assert "方便时" in model_api[1][3]["conversation"][-1]["draft"]["body"]
+    assert proposal.content["body"].count("测试签名") == 1
+    client.post(
+        reverse("action_review_revise", args=[proposal.id]),
+        {
+            "version": 3,
+            "instruction": "改一下语气。",
+            "request_id": uuid.uuid4(),
+        },
+        follow=True,
+    )
+    proposal.refresh_from_db()
+    assert proposal.version == 3 and proposal.content["subject"] == "下周项目讨论"
+    assert DraftTurn.objects.filter(status="failed").count() == 1
+    assert not mail_api and not ActionExecution.objects.exists()
+    with pytest.raises(ValidationError, match="过期"):
+        decide_proposal(proposal.id, owner, 1, "approve")
+    for _ in range(2):
+        client.post(
+            reverse("action_review_decide", args=[proposal.id]),
+            {"version": 3, "decision": "approve"},
+        )
+    assert len(mail_api) == 1 and mail_api[0].method == "POST"
+    payload = json.loads(mail_api[0].content)
+    if provider == "gmail":
+        mime = BytesParser(policy=policy.default).parsebytes(
+            base64.urlsafe_b64decode(payload["raw"])
+        )
+        assert "In-Reply-To" not in mime and "References" not in mime and "threadId" not in payload
+        assert mime["To"] == "recipient@example.com" and mime["Cc"] == "copy@example.com"
+        assert "时间可安排在下周" in mime.get_content()
+    else:
+        assert mail_api[0].url.path == "/v1.0/me/sendMail"
+        assert payload["message"]["body"]["content"] == proposal.content["body"]
+        assert (
+            payload["message"]["toRecipients"][0]["emailAddress"]["address"]
+            == "recipient@example.com"
+        )
+    client.force_login(django_user_model.objects.create_user(username="other-drafter"))
+    assert (
+        client.post(reverse("action_review_revise", args=[proposal.id]), first).status_code == 404
+    )

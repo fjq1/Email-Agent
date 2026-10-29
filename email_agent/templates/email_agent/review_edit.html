@@ -2,7 +2,7 @@
 {% block title %}修改审核内容 · 邮件助理{% endblock %}
 {% block content %}
 <div class="breadcrumb"><a href="{% url 'action_review' proposal.id %}">返回审核预览</a><span>/</span><span>修改内容</span></div>
-<div class="page-heading"><div><p class="eyebrow">EDIT SUGGESTION</p><h1>修改{% if proposal.kind == 'send_reply' %}回复{% else %}待办{% endif %}内容</h1><p>保存为新版本，回到预览页确认后才会执行。</p></div></div>
+<div class="page-heading"><div><p class="eyebrow">EDIT SUGGESTION</p><h1>修改{% if proposal.is_email %}邮件{% else %}待办{% endif %}内容</h1><p>保存为新版本，回到预览页确认后才会执行。</p></div></div>
 <section>
   {% if proposal.kind == 'send_reply' %}<p class="notice">保存时会刷新来源邮件快照，请核对最新来信。</p>{% endif %}
   <form method="post" class="editor-form">

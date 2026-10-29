@@ -8,6 +8,7 @@ from django.conf import settings
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import Field, model_validator
 
+from .drafting import ComposeRequest, mentioned_addresses
 from .models import get_chat_model
 from .schemas import StructuredData
 from .understanding import UnderstandingError
@@ -48,21 +49,37 @@ class PreferenceSuggestion(StructuredData):
 
 class CommandSpec(StructuredData):
     action: Literal[
-        "search", "summarize", "extract_tasks", "draft_replies", "preference_only", "unsupported"
+        "search",
+        "summarize",
+        "extract_tasks",
+        "draft_replies",
+        "compose_email",
+        "preference_only",
+        "unsupported",
     ]
     filters: SearchFilters = Field(default_factory=SearchFilters)
     limit: int = Field(default=5, ge=1, le=10)
     options: ProcessingOptions = Field(default_factory=ProcessingOptions)
+    compose: ComposeRequest | None = None
     preference_suggestions: list[PreferenceSuggestion] = Field(default_factory=list, max_length=4)
     clarifications: list[str] = Field(default_factory=list, max_length=6)
     explanation: str = Field(max_length=800)
 
+    @model_validator(mode="after")
+    def composition_required(self):
+        if self.action == "compose_email" and self.compose is None:
+            raise ValueError("新邮件需要明确的收件地址与写信要求")
+        return self
+
 
 COMMAND_PROMPT = """把用户指令解析成符合 JSON Schema 的 JSON 对象，不能执行任何操作。
 支持：search 检索、summarize 摘要、extract_tasks 提取并送审内部待办、draft_replies 生成回复并送审。
+用户要求向指定邮箱写一封新邮件时使用 compose_email，compose 提取 to、cc、subject（未指定留空）及 brief 写信要求。
+新邮件不需要检索来源邮件，不得误归类为检索或回复。地址必须逐字来自用户指令；缺少明确收件地址时用 unsupported 并请求补充。
 用户要求直接回复或发送时，也只能计划生成草稿并审核；在 explanation 明确说明。
 只保存偏好的指令使用 preference_only。删除、归档、标记已读、日历、切换到其他邮箱等未支持操作使用 unsupported，
 在 clarifications 说明，不得默默丢弃条件或假装执行。只能使用当前由用户选择的邮箱，不推测联系人邮箱。
+暂不支持密送、附件发送和定时发送，要求这些操作时用 unsupported 并说明，不要丢弃要求后继续。
 文件夹未指定时默认 inbox。from/to 可以保留姓名，不能编造地址；多个关键词为同时包含。
 日期筛选针对收件时间，date_to 包含当日。相对日期以给定 current_time 和时区计算，不以邮件发送时间计算。
 未明确日期不补日期；‘本周’等歧义说明具体解释。要求按正文截止日期/分类检索时说明需要进一步分析，无法转换时用 unsupported。
@@ -106,6 +123,10 @@ def parse_command(instruction, *, mailbox, timezone_name, current_time):
         if result.get("parsed") is None or result.get("parsing_error"):
             raise ValueError
         spec = result["parsed"].model_dump(mode="json")
+        if spec["action"] == "compose_email":
+            addresses = spec["compose"]["to"] + spec["compose"]["cc"]
+            if any(value.casefold() not in mentioned_addresses(instruction) for value in addresses):
+                raise ValueError
         # 指令中的引文验证与邮件证据相同：未出现的‘偏好来源’不允许进入确认界面。
         from email_agent.services.preferences import validate_preference
 

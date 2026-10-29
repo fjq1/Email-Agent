@@ -348,3 +348,56 @@ def test_send_permission_and_owner_boundaries(client, owner, analysis, mail_api,
         ).status_code
         == 404
     )
+
+
+def test_reply_conversational_revision_uses_latest_saved_draft(
+    client, owner, analysis, mail_api, monkeypatch
+):
+    """回复共用改稿服务；手动编辑与对话交替后，从最新版本继续。"""
+    from email_agent.services.reviews import save_proposal
+
+    captured = []
+
+    def generate(**data):
+        captured.append(data)
+        return {
+            "content": {
+                **data["current"],
+                "body": data["current"]["body"] + "\n" + data["instruction"],
+            },
+            "summary": "已修改。",
+            "usage": {},
+            "provider": "bailian",
+            "model_name": "test-model",
+        }
+
+    monkeypatch.setattr("email_agent.services.drafts.generate_draft", generate)
+    proposal = prepare_proposal(analysis.id, owner)
+    client.force_login(owner)
+    client.post(
+        reverse("action_review_revise", args=[proposal.id]),
+        {
+            "version": 1,
+            "instruction": "第一轮要求",
+            "request_id": uuid.uuid4(),
+        },
+        follow=True,
+    )
+    proposal.refresh_from_db()
+    proposal = save_proposal(proposal.id, owner, edit_data(proposal, body="人工确认后的正文"))
+    response = client.post(
+        reverse("action_review_revise", args=[proposal.id]),
+        {
+            "version": 3,
+            "instruction": "第二轮要求",
+            "request_id": uuid.uuid4(),
+        },
+        follow=True,
+    )
+    assert response.status_code == 200
+    proposal.refresh_from_db()
+    assert proposal.version == 4 and proposal.review_state == "pending"
+    assert captured[1]["current"]["body"] == "人工确认后的正文"
+    assert captured[1]["source"]["body_text"] == BODY
+    assert len(captured[1]["history"]) == 1 and proposal.draft_turns.count() == 2
+    assert not mail_api[0] and not ActionExecution.objects.exists()

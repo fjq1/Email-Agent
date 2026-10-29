@@ -15,6 +15,7 @@ ACTION_CHOICES = [
     ("summarize", "生成摘要"),
     ("extract_tasks", "提取待办并送审"),
     ("draft_replies", "生成回复并送审"),
+    ("compose_email", "撰写新邮件并送审"),
     ("preference_only", "仅提出偏好"),
     ("unsupported", "暂不支持，需修改计划"),
 ]
@@ -62,7 +63,9 @@ class CommandStartForm(forms.Form):
 
 
 class CommandSpecForm(VersionedForm):
-    action = forms.ChoiceField(label="处理目标", choices=ACTION_CHOICES)
+    action = forms.ChoiceField(
+        label="处理目标", choices=[item for item in ACTION_CHOICES if item[0] != "compose_email"]
+    )
     folder = forms.ChoiceField(
         label="文件夹范围",
         choices=[("inbox", "收件箱"), ("sent", "已发送"), ("all", "服务商默认全邮箱范围")],
