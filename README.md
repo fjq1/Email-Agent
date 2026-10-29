@@ -1,8 +1,8 @@
 # Email Agent
 
-基于 Django、PostgreSQL、LangChain 和 LangGraph 的邮件助理。当前已实现阶段 0 至 3，以及阶段 5 的指令处理与偏好管理。阶段 4 调整为后置的轻量恢复检查，具体范围见执行方案。当前保持同步运行，外部基础设施只需要 PostgreSQL。
+基于 Django、PostgreSQL、LangChain 和 LangGraph 的邮件助理。当前保持同步运行，外部基础设施只需要 PostgreSQL。
 
-目录职责、后续功能和阶段验收见 [执行方案](docs/IMPLEMENTATION_PLAN.md)。首次连接邮箱请按 [Gmail / Outlook 配置指南](docs/MAILBOX_SETUP.md) 创建 OAuth 应用并填写 `.env`。
+首次连接邮箱请按 [Gmail / Outlook 配置指南](docs/MAILBOX_SETUP.md) 创建 OAuth 应用并填写 `.env`。
 
 ## 已提供的基础能力
 
@@ -122,7 +122,7 @@ uv run python manage.py check_mailbox --username 你的Django用户名 --account
 
 该命令实际读取一封邮件及一页会话，并缓存到 PostgreSQL；输出不包含正文或令牌。真实 OAuth 验收记录见 [阶段 1 验证记录](docs/STAGE1_VERIFICATION.md)。
 
-## 分析邮件（阶段 2）
+## 分析邮件
 
 1. 在已连接的邮箱中搜索并打开一封邮件，成功读取正文。
 2. 在“分析这封邮件”中填写日期解释时区，例如 `Asia/Shanghai` 或 `America/New_York`，点击“分析邮件”。
@@ -157,7 +157,7 @@ uv run python manage.py analyze_mail --username 你的用户名 --analysis 分�
 
 阶段验证报告持续保留：[阶段 0](docs/STAGE0_VERIFICATION.md)、[阶段 1](docs/STAGE1_VERIFICATION.md)、[阶段 2](docs/STAGE2_VERIFICATION.md)、[阶段 3](docs/STAGE3_VERIFICATION.md)、[阶段 5](docs/STAGE5_VERIFICATION.md)。阶段 3 / 5 报告包含核心实现文件导航。
 
-## 人工审核、正式待办和发送（阶段 3）
+## 人工审核、正式待办和发送
 
 1. 在分析结果中，选择“审核并创建待办”或“进入回复审核”。首次进入只建立审核单并暂停。
 2. 检查已保存的预览及来源快照。需要修改时进入独立编辑页，调整回复正文、主题、收件人、抄送，或任务标题、负责人、截止日期和依赖。
@@ -186,7 +186,7 @@ uv run python manage.py analyze_mail --username 你的用户名 --analysis 分�
 
 Gmail 使用 MIME 和回复头，Outlook 使用 Graph 原生 `reply`。页面区分执行完成、邮箱服务已受理和结果待核对，Graph `202 Accepted` 不代表送达。重复确认和已完成动作不再次执行。明确拒绝（如 HTTP 400）可手动重试；超时、服务端错误或发送中进程退出导致结果不明时，禁止重发和改版本绕过。后置的阶段 4 将补充简单人工核对入口和一次 Web 重启检查，完整故障矩阵延后评估。
 
-## 指令处理与偏好（阶段 5）
+## 指令处理与偏好
 
 从主导航打开“指令处理”，选择本次使用的一个已连接邮箱，例如输入：
 
