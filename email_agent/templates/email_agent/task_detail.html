@@ -1,0 +1,17 @@
+{% extends "email_agent/base.html" %}
+{% block title %}待办详情 · 邮件助理{% endblock %}
+{% block content %}
+<section>
+  <a href="{% url 'tasks' %}">返回我的待办</a>
+  {% include "email_agent/task_content.html" with content=task dependencies=task.dependencies.all %}
+  <p><a href="{% url 'task_candidate' task.candidate_id %}">查看来源及重复提醒</a> · <a href="{% url 'action_review' task.execution.proposal_id %}">查看审批和执行记录</a></p>
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="version" value="{{ task.version }}">
+    <label>当前状态
+      <select name="status">{% for value,label in status_choices %}<option value="{{ value }}" {% if value == task.status %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    </label>
+    <button class="secondary">更新状态</button>
+  </form>
+</section>
+{% endblock %}

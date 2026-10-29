@@ -1,0 +1,10 @@
+{# 审核预览和正式待办使用相同的字段名，避免日期或依赖展示出现偏差。 #}
+<h3>{{ content.title }}</h3>
+<pre class="mail-body">{{ content.description|default:"（无补充说明）" }}</pre>
+<p>负责人：{{ content.responsible_name|default:"待指定" }}{% if content.responsible_email %} · {{ content.responsible_email }}{% endif %}</p>
+<p>截止日期：{{ content.due_date|default:"未设置" }}{% if content.due_time %} {{ content.due_time }}{% endif %} · {{ content.timezone_name }}</p>
+{% if content.dependency_notes %}<p>依赖说明：</p><pre class="mail-body">{{ content.dependency_notes }}</pre>{% endif %}
+{% if dependencies %}
+  <p>前置待办：</p>
+  <ul>{% for dependency in dependencies %}<li><a href="{% url 'task_detail' dependency.id %}">{{ dependency.title }}</a> · {{ dependency.get_status_display }}</li>{% endfor %}</ul>
+{% endif %}

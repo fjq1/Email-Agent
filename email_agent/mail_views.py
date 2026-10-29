@@ -42,6 +42,7 @@ def connect(request, provider):
             provider,
             request.get_host(),
             request.POST.get("account_id") or None,
+            allow_send=request.POST.get("allow_send") == "1",
         )
     except (MailboxAccount.DoesNotExist, ValidationError, ValueError):
         raise Http404 from None
@@ -69,7 +70,12 @@ def callback(request, provider):
         messages.error(request, str(exc))
         response = redirect("dashboard")
     else:
-        messages.success(request, f"已连接 {account.email_address}，可以检索和读取邮件。")
+        note = (
+            "已启用发送，可从审核记录返回原审核单确认。"
+            if account.can_send
+            else "可以检索和读取邮件。"
+        )
+        messages.success(request, f"已连接 {account.email_address}，{note}")
         response = redirect("mailbox_messages", account_id=account.id)
     response["Referrer-Policy"] = "no-referrer"
     return response

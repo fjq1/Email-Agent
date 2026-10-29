@@ -6,7 +6,7 @@
   <h2>{{ analysis.source_snapshot.subject|default:"（无主题）" }}</h2>
   <p>{{ analysis.message.mailbox.email_address }} · {{ analysis.model_name }} · {{ analysis.run.get_status_display }}</p>
   <p class="muted">分析时区：{{ analysis.timezone_name }} · {{ analysis.created_at|date:"Y-m-d H:i:s T" }}</p>
-  <p class="notice">本页提供理解结果、候选事项和草稿，尚未创建正式任务或发送邮件。后续审核应以这里保存的具体原文和内容为准。</p>
+  <p class="notice">分析结果是处理建议。进入审核后可以修改内容，再确认创建待办或发送；每项动作分别审核。</p>
   {% if analysis.run.status != 'succeeded' %}
     <p class="warning">{{ analysis.error_message|default:"分析尚未结束；如果上次请求已中断，可以继续处理。" }}</p>
     <form method="post" action="{% url 'mail_analysis_retry' analysis.id %}">{% csrf_token %}<button>重试 / 继续分析</button></form>
@@ -35,6 +35,15 @@
           <p class="warning">发现可能重复的候选，请人工比较：{% for candidate_id in source.possible_duplicates %}<a href="{% url 'task_candidate' candidate_id %}">候选 {{ forloop.counter }}</a> {% endfor %}</p>
         {% endif %}
         {% include "email_agent/task_fields.html" with item=source.details %}
+        {% if source.review_proposal %}
+          <p><a href="{% url 'action_review' source.review_proposal.id %}">查看此事项的审核记录</a></p>
+        {% else %}
+          <form method="post" action="{% url 'prepare_review' analysis.id %}">
+            {% csrf_token %}
+            <input type="hidden" name="candidate_id" value="{{ source.candidate_id }}">
+            <button>审核并创建待办</button>
+          </form>
+        {% endif %}
       </article>
     {% empty %}<p>本邮件没有提取到需要执行的事项。</p>{% endfor %}
   </section>
@@ -42,10 +51,17 @@
     <section>
       <h2>回复草稿</h2>
       <p>主题：{{ analysis.payload.reply_draft.subject }}</p>
-      <label for="reply-body">草稿正文（可复制；编辑与发送在后续审核阶段提供）</label>
+      <label for="reply-body">模型建议草稿（进入审核后编辑与确认）</label>
       <textarea id="reply-body" readonly>{{ analysis.payload.reply_draft.body }}</textarea>
       {% if analysis.payload.reply_draft.uncertainties %}<ul class="warning">{% for text in analysis.payload.reply_draft.uncertainties %}<li>{{ text }}</li>{% endfor %}</ul>{% endif %}
       {% include "email_agent/evidence.html" with evidence_list=analysis.payload.reply_draft.evidence %}
+      {% if reply_proposal %}
+        <p><a href="{% url 'action_review' reply_proposal.id %}">打开回复审核记录</a></p>
+      {% else %}
+        <form method="post" action="{% url 'prepare_review' analysis.id %}">
+          {% csrf_token %}<button>进入回复审核</button>
+        </form>
+      {% endif %}
     </section>
   {% endif %}
 {% endif %}

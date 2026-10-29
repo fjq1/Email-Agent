@@ -73,6 +73,11 @@ def test_google_authorization_uses_pkce_and_readonly_scope(oauth_settings):
     assert "gmail.send" not in params["scope"][0]
     assert params["access_type"] == ["offline"]
     assert "test-gmail-secret" not in url
+    send_url, _ = GmailProvider().begin_authorization("send-state", allow_send=True)
+    assert (
+        "https://www.googleapis.com/auth/gmail.send"
+        in parse_qs(urlsplit(send_url).query)["scope"][0].split()
+    )
 
 
 def test_microsoft_uses_official_sdk_and_delegated_read_scopes(oauth_settings):
@@ -91,6 +96,9 @@ def test_microsoft_uses_official_sdk_and_delegated_read_scopes(oauth_settings):
     assert app.initiate_auth_code_flow.call_args.args[0] == OUTLOOK_SCOPES
     assert app.initiate_auth_code_flow.call_args.kwargs["response_mode"] == "query"
     assert flow["code_verifier"] == "pkce"
+    with patch.object(OutlookProvider, "_application", return_value=app):
+        OutlookProvider().begin_authorization("send-state", allow_send=True)
+    assert app.initiate_auth_code_flow.call_args.args[0] == [*OUTLOOK_SCOPES, "Mail.Send"]
 
 
 def test_production_rejects_plain_http_callback(oauth_settings, settings):

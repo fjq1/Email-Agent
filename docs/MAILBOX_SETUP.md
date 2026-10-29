@@ -72,9 +72,24 @@ OUTLOOK_REDIRECT_URI=http://localhost:8000/mailboxes/oauth/outlook/callback/
 | 仅组织账户、多租户 | `organizations` |
 | 指定组织、单租户 | 该组织的 Directory (tenant) ID，UUID 格式 |
 
-MSAL 会在授权流程中处理 OpenID、离线访问、PKCE 和 nonce。本阶段只读邮件接口使用委托权限；不需要申请应用级的全组织邮件读取权限，也不需要发送权限。
+MSAL 会在授权流程中处理 OpenID、离线访问、PKCE 和 nonce。读取接口使用委托权限，不需要申请全组织邮件读取权限。阶段 3 发送回复另行申请 `Mail.Send`，见下方说明。
 
 参考：[注册 Entra 应用](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app)、[Web 回调配置](https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-redirect-uri)、[授权码流程](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow)。
+
+## 阶段 3：为已有邮箱启用发送
+
+只做邮件理解和内部待办时保持只读即可。需要实际发送回复时：
+
+1. **Gmail**：在 Google Auth Platform → Data Access 的原有范围中，增加 `https://www.googleapis.com/auth/gmail.send`，保存。测试模式继续保留自己的 Gmail 为测试用户。
+2. **Outlook**：在原 Entra 应用 → API permissions → Microsoft Graph → **Delegated permissions** 中增加 `Mail.Send`。学校/组织策略要求时，仍需管理员批准。
+3. 回到本应用首页或回复审核页，点击该邮箱的“启用发送”，选择原邮箱完成重新授权。回调地址、Client ID 与 Secret 无需改变。
+4. 授权后打开“审核记录”，回到原审核单核对收件人与正文，再确认发送。
+
+普通“连接邮箱”仍只请求只读范围；已启用发送的账户重新授权时会保留发送范围。用户拒绝发送范围时不会把只读连接误标为可发送。断开连接会清除本地发送能力标记。
+
+本阶段使用本地草稿及确认后直接回复，无需额外申请 Gmail compose / modify 或 Graph Mail.ReadWrite。Gmail 使用 `messages.send`，Outlook 使用原生 `reply`，Graph 返回“已受理”不等于已经送达。
+
+参考：[Gmail 发送范围](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/send)、[Graph 回复权限](https://learn.microsoft.com/en-us/graph/api/message-reply?view=graph-rest-1.0)。
 
 ## 加密密钥
 

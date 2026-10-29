@@ -12,7 +12,7 @@ from email_agent.services.credentials import decrypt_credentials, encrypt_creden
 CURSOR_SALT = "mailbox-pagination-v1"
 
 
-def _token(account_id, owner, force_refresh=False):
+def _token(account_id, owner, force_refresh=False, *, allow_send=False):
     failure = None
     with transaction.atomic():
         account = MailboxAccount.objects.select_for_update().get(pk=account_id, owner=owner)
@@ -20,16 +20,26 @@ def _token(account_id, owner, force_refresh=False):
             raise ReconnectRequired()
         saved = decrypt_credentials(account.encrypted_credentials)
         try:
-            token, updated = get_provider(account.provider).access_token(
-                saved, force_refresh=force_refresh
-            )
+            options = {"force_refresh": force_refresh}
+            if allow_send:
+                if not account.can_send:
+                    raise MailError("请先为该邮箱启用发送权限。", "send_permission_required")
+                options["allow_send"] = True
+            token, updated = get_provider(account.provider).access_token(saved, **options)
         except ReconnectRequired as exc:
             failure = exc
             account.status = MailboxAccount.Status.RECONNECT_REQUIRED
+            account.can_send = False
             account.encrypted_credentials = ""
             account.last_error_code = exc.code
             account.save(
-                update_fields=["status", "encrypted_credentials", "last_error_code", "updated_at"]
+                update_fields=[
+                    "status",
+                    "can_send",
+                    "encrypted_credentials",
+                    "last_error_code",
+                    "updated_at",
+                ]
             )
         else:
             if updated != saved:
@@ -60,6 +70,7 @@ def _read(account, owner, operation, *arguments):
         ).update(
             status=MailboxAccount.Status.RECONNECT_REQUIRED,
             encrypted_credentials="",
+            can_send=False,
             last_error_code=exc.code,
         )
         raise
@@ -125,6 +136,8 @@ def _store_messages(account, owner, data):
                 "sender": item.sender,
                 "to_recipients": item.to_recipients,
                 "cc_recipients": item.cc_recipients,
+                "reply_to": item.reply_to,
+                "references": item.references,
                 "received_at": item.received_at,
                 "sent_at": item.sent_at,
                 "snippet": item.snippet,

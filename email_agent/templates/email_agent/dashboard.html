@@ -22,7 +22,7 @@
         {% for mailbox in mailboxes %}
           <tr>
             <td>{{ mailbox.email_address }}<p class="muted">{{ mailbox.get_provider_display }}</p></td>
-            <td>{{ mailbox.get_status_display }}</td>
+            <td>{{ mailbox.get_status_display }}<p class="muted">{% if mailbox.can_send %}已授予发送权限{% else %}只读权限{% endif %}</p></td>
             <td>
               <div class="actions">
                 {% if mailbox.status == 'connected' %}
@@ -34,6 +34,14 @@
                   <button class="secondary">重新授权</button>
                 </form>
                 {% if mailbox.status != 'disconnected' %}
+                  {% if not mailbox.can_send %}
+                    <form method="post" action="{% url 'mailbox_connect' mailbox.provider %}">
+                      {% csrf_token %}
+                      <input type="hidden" name="account_id" value="{{ mailbox.id }}">
+                      <input type="hidden" name="allow_send" value="1">
+                      <button class="secondary">启用发送</button>
+                    </form>
+                  {% endif %}
                   <form method="post" action="{% url 'mailbox_disconnect' mailbox.id %}">
                     {% csrf_token %}
                     <button class="secondary">断开连接</button>

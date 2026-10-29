@@ -1,0 +1,14 @@
+{% extends "email_agent/base.html" %}
+{% block title %}修改审核内容 · 邮件助理{% endblock %}
+{% block content %}
+<section>
+  <a href="{% url 'action_review' proposal.id %}">返回已保存的预览</a>
+  <h2>修改{{ proposal.get_kind_display }}内容</h2>
+  <p>保存后会生成新版本，返回预览页再确认执行。{% if proposal.kind == 'send_reply' %}保存时也会刷新来源邮件快照，请核对最新来信。{% endif %}</p>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button>保存修改，返回预览</button>
+  </form>
+</section>
+{% endblock %}

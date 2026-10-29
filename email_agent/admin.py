@@ -1,13 +1,18 @@
 from django.contrib import admin
 
 from email_agent.models import (
+    ActionAttempt,
+    ActionExecution,
+    ActionProposal,
     AgentRun,
     AnalysisResult,
+    ApprovalDecision,
     AuditEvent,
     EmailMessage,
     MailboxAccount,
     OperationRecord,
     TaskCandidate,
+    TaskItem,
 )
 
 
@@ -62,3 +67,28 @@ class AnalysisResultAdmin(ReadOnlyAdmin):
 @admin.register(TaskCandidate)
 class TaskCandidateAdmin(ReadOnlyAdmin):
     list_display = ("title", "mailbox", "created_at")
+
+
+@admin.register(ActionProposal)
+class ActionProposalAdmin(ReadOnlyAdmin):
+    list_display = ("id", "kind", "version", "review_state", "updated_at")
+
+
+@admin.register(ApprovalDecision)
+class ApprovalDecisionAdmin(ReadOnlyAdmin):
+    list_display = ("proposal", "version", "decision", "actor", "created_at")
+
+
+@admin.register(ActionExecution)
+class ActionExecutionAdmin(ReadOnlyAdmin):
+    list_display = ("id", "proposal", "version", "status", "updated_at")
+
+
+@admin.register(ActionAttempt)
+class ActionAttemptAdmin(ReadOnlyAdmin):
+    list_display = ("execution", "number", "status", "started_at")
+
+
+@admin.register(TaskItem)
+class TaskItemAdmin(ReadOnlyAdmin):
+    list_display = ("title", "owner", "status", "due_date", "created_at")

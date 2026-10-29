@@ -1,0 +1,20 @@
+{% extends "email_agent/base.html" %}
+{% block title %}我的待办 · 邮件助理{% endblock %}
+{% block content %}
+<section>
+  <h2>我的待办</h2>
+  <p>这里仅展示经过确认创建的正式待办。</p>
+  {% for task in page %}
+    <article class="mail-card">
+      <h3><a href="{% url 'task_detail' task.id %}">{{ task.title }}</a></h3>
+      <p>{{ task.get_status_display }} · {{ task.responsible_name|default:"负责人待指定" }}</p>
+      <p class="muted">{{ task.candidate.mailbox.email_address }} · 截止 {{ task.due_date|default:"未设置" }}{% if task.due_time %} {{ task.due_time|time:"H:i" }}{% endif %} · {{ task.timezone_name }}</p>
+    </article>
+  {% empty %}<p>还没有正式待办，请先从分析结果审核一个任务候选。</p>{% endfor %}
+  <div class="actions">
+    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">上一页</a>{% endif %}
+    <span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页</span>
+    {% if page.has_next %}<a href="?page={{ page.next_page_number }}">下一页</a>{% endif %}
+  </div>
+</section>
+{% endblock %}

@@ -14,7 +14,7 @@ from django.utils import timezone
 from email_agent.models import MailboxAccount, OAuthAttempt
 from email_agent.providers import get_provider
 from email_agent.providers.base import MailError
-from email_agent.providers.config import provider_config
+from email_agent.providers.config import has_send_scope, provider_config
 from email_agent.services.credentials import (
     credential_cipher,
     decrypt_credentials,
@@ -42,7 +42,9 @@ def connection_options():
     return options
 
 
-def begin_connection(owner, session_key, provider_name, current_host, account_id=None):
+def begin_connection(
+    owner, session_key, provider_name, current_host, account_id=None, *, allow_send=False
+):
     config = provider_config(provider_name)
     credential_cipher()
     if urlsplit(config["redirect_uri"]).netloc.lower() != current_host.lower():
@@ -53,8 +55,14 @@ def begin_connection(owner, session_key, provider_name, current_host, account_id
     target = None
     if account_id:
         target = MailboxAccount.objects.get(pk=account_id, owner=owner, provider=provider_name)
+        allow_send = allow_send or target.can_send
     state = secrets.token_urlsafe(32)
-    url, saved = get_provider(provider_name).begin_authorization(state)
+    adapter = get_provider(provider_name)
+    url, saved = (
+        adapter.begin_authorization(state, allow_send=True)
+        if allow_send
+        else adapter.begin_authorization(state)
+    )
     expected_host = (
         "accounts.google.com" if provider_name == "gmail" else "login.microsoftonline.com"
     )
@@ -150,6 +158,7 @@ def finish_connection(owner, session_key, provider_name, response):
         account.email_address = identity.email
         account.display_name = (identity.display_name or "")[:255]
         account.encrypted_credentials = encrypt_credentials(credentials)
+        account.can_send = has_send_scope(provider_name, credentials.get("scopes", []))
         account.status = MailboxAccount.Status.CONNECTED
         account.connected_at = timezone.now()
         account.last_error_code = ""
@@ -162,9 +171,16 @@ def disconnect_mailbox(account_id, owner):
         account = MailboxAccount.objects.select_for_update().get(pk=account_id, owner=owner)
         account.encrypted_credentials = ""
         account.status = MailboxAccount.Status.DISCONNECTED
+        account.can_send = False
         account.last_error_code = ""
         account.save(
-            update_fields=["encrypted_credentials", "status", "last_error_code", "updated_at"]
+            update_fields=[
+                "encrypted_credentials",
+                "status",
+                "can_send",
+                "last_error_code",
+                "updated_at",
+            ]
         )
         attempts = list(
             OAuthAttempt.objects.select_for_update()

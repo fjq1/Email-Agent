@@ -9,7 +9,7 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
 from email_agent.forms import MailAnalysisForm
-from email_agent.models import AgentRun, AnalysisResult, EmailMessage, TaskCandidate
+from email_agent.models import ActionProposal, AgentRun, AnalysisResult, EmailMessage, TaskCandidate
 from email_agent.providers.base import MailError
 from email_agent.services.analysis import analyze_message, resume_analysis
 
@@ -46,12 +46,25 @@ def detail(request, analysis_id):
         pk=analysis_id,
         run__owner=request.user,
     )
+    task_sources = list(analysis.task_sources.select_related("candidate"))
+    proposal_map = {
+        item.candidate_id: item
+        for item in ActionProposal.objects.filter(
+            candidate_id__in=[source.candidate_id for source in task_sources],
+            run__owner=request.user,
+        )
+    }
+    for source in task_sources:
+        source.review_proposal = proposal_map.get(source.candidate_id)
     return render(
         request,
         "email_agent/analysis_detail.html",
         {
             "analysis": analysis,
-            "task_sources": analysis.task_sources.select_related("candidate"),
+            "task_sources": task_sources,
+            "reply_proposal": ActionProposal.objects.filter(
+                source_key=f"reply:{analysis.message_id}", run__owner=request.user
+            ).first(),
         },
     )
 

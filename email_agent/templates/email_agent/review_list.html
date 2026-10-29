@@ -1,0 +1,20 @@
+{% extends "email_agent/base.html" %}
+{% block title %}审核记录 · 邮件助理{% endblock %}
+{% block content %}
+<section>
+  <h2>审核记录</h2>
+  <p>先查看并修改建议，再确认具体动作。打开记录或刷新页面都不会自动批准。</p>
+  {% for proposal in page %}
+    <article class="mail-card">
+      <h3><a href="{% url 'action_review' proposal.id %}">{{ proposal.get_kind_display }} · {% if proposal.kind == 'send_reply' %}{{ proposal.content.subject }}{% else %}{{ proposal.content.title }}{% endif %}</a></h3>
+      <p>{{ proposal.get_review_state_display }} · 第 {{ proposal.version }} 版 · {{ proposal.run.get_status_display }}</p>
+      <p class="muted">来源：{{ proposal.analysis.source_snapshot.subject }} · {{ proposal.updated_at|date:"Y-m-d H:i" }}</p>
+    </article>
+  {% empty %}<p>还没有审核单。打开邮件分析结果，选择回复草稿或任务候选进入审核。</p>{% endfor %}
+  <div class="actions">
+    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">上一页</a>{% endif %}
+    <span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页</span>
+    {% if page.has_next %}<a href="?page={{ page.next_page_number }}">下一页</a>{% endif %}
+  </div>
+</section>
+{% endblock %}

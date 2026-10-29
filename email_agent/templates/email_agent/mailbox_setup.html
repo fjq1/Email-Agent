@@ -34,6 +34,15 @@
   </section>
 {% endfor %}
 <section>
+  <h2>为已有邮箱启用发送</h2>
+  <p>只做分析或内部待办时继续使用只读权限。需要发信时，先补充平台侧的发送范围，再在首页或回复审核页点击“启用发送”。</p>
+  <ul>
+    <li>Gmail：在 Google Auth Platform 的 Data Access 增加 <code>https://www.googleapis.com/auth/gmail.send</code>。</li>
+    <li>Outlook：在 Entra 应用的 Microsoft Graph 委托权限中增加 <code>Mail.Send</code>，需要时请组织管理员批准。</li>
+  </ul>
+  <p>重新授权时选择原邮箱。已有草稿和审核单会保留，授权完成后从“审核记录”返回，再核对并确认发送。</p>
+</section>
+<section>
   <h2>本地授权注意事项</h2>
   <p>请使用和回调一致的主机名登录应用。默认使用 <code>http://localhost:8000</code>；<code>127.0.0.1</code> 的登录会话与它分开。授权过程中不要退出应用账号。</p>
   <p>本地加密密钥 <code>MAIL_TOKEN_ENCRYPTION_KEY</code> 用来保护刷新凭据，应与数据库备份分开保存；后续不要随意更换。</p>

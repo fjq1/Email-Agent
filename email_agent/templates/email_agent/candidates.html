@@ -3,7 +3,7 @@
 {% block content %}
 <section>
   <h2>候选事项</h2>
-  <p>从邮件中提取的待审核事项；同一候选可关联多个邮件来源。目前尚未创建正式待办。</p>
+  <p>从邮件中提取的候选事项；同一候选可关联多个邮件来源，审核确认后成为正式待办。</p>
   {% for candidate in page %}
     <article class="mail-card">
       <h3><a href="{% url 'task_candidate' candidate.id %}">{{ candidate.title }}</a></h3>

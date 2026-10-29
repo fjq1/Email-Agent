@@ -4,7 +4,7 @@ from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import path
 
-from email_agent import analysis_views, mail_views, views
+from email_agent import analysis_views, mail_views, review_views, views
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -25,6 +25,14 @@ urlpatterns = [
     path("analyses/<uuid:analysis_id>/retry/", analysis_views.retry, name="mail_analysis_retry"),
     path("candidates/", analysis_views.candidate_list, name="task_candidates"),
     path("candidates/<uuid:candidate_id>/", analysis_views.candidate_detail, name="task_candidate"),
+    path("analyses/<uuid:analysis_id>/review/", review_views.prepare, name="prepare_review"),
+    path("reviews/", review_views.review_list, name="action_reviews"),
+    path("reviews/<uuid:proposal_id>/", review_views.detail, name="action_review"),
+    path("reviews/<uuid:proposal_id>/edit/", review_views.edit, name="action_review_edit"),
+    path("reviews/<uuid:proposal_id>/decide/", review_views.decide, name="action_review_decide"),
+    path("reviews/<uuid:proposal_id>/resume/", review_views.resume, name="action_review_resume"),
+    path("tasks/", review_views.task_list, name="tasks"),
+    path("tasks/<uuid:task_id>/", review_views.task_detail, name="task_detail"),
     path("mailboxes/oauth/<str:provider>/connect/", mail_views.connect, name="mailbox_connect"),
     path("mailboxes/oauth/<str:provider>/callback/", mail_views.callback, name="mailbox_callback"),
     path(

@@ -32,6 +32,7 @@ class MailboxAccount(TimestampedModel):
     connected_at = models.DateTimeField("最近授权时间", null=True, blank=True)
     last_checked_at = models.DateTimeField("最近访问时间", null=True, blank=True)
     last_error_code = models.CharField("最近错误类型", max_length=80, blank=True)
+    can_send = models.BooleanField("已授予发送权限", default=False)
 
     class Meta:
         ordering = ["email_address"]
@@ -77,6 +78,8 @@ class EmailMessage(TimestampedModel):
     sender = models.JSONField("发件人", default=dict)
     to_recipients = models.JSONField("收件人", default=list)
     cc_recipients = models.JSONField("抄送", default=list)
+    reply_to = models.JSONField("回复地址", default=list)
+    references = models.TextField("邮件引用链", blank=True)
     received_at = models.DateTimeField("收到时间", null=True, blank=True)
     sent_at = models.DateTimeField("发送时间", null=True, blank=True)
     snippet = models.TextField("正文预览", blank=True)

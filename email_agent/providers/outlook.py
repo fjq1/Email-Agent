@@ -1,4 +1,4 @@
-"""Microsoft 官方 MSAL 授权和 Graph 邮件读取，兼容个人及工作/学校账户。"""
+"""Microsoft 官方 MSAL 授权、Graph 读取与回复，兼容个人及工作/学校账户。"""
 
 import json
 from urllib.parse import quote, urlsplit
@@ -7,11 +7,11 @@ import msal
 from django.conf import settings
 
 from .base import MailError, MailIdentity, MailProvider, MessageData, MessagePage, ReconnectRequired
-from .config import OUTLOOK_SCOPES, provider_config
+from .config import OUTLOOK_SCOPES, mail_scopes, provider_config
 from .parsing import bounded_text, html_to_text, message_date
 
 API = "https://graph.microsoft.com/v1.0"
-SUMMARY_FIELDS = "id,conversationId,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,sentDateTime,bodyPreview,hasAttachments"
+SUMMARY_FIELDS = "id,conversationId,internetMessageId,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,sentDateTime,bodyPreview,hasAttachments"
 
 
 class OutlookProvider(MailProvider):
@@ -32,11 +32,11 @@ class OutlookProvider(MailProvider):
             enable_pii_log=False,
         )
 
-    def begin_authorization(self, state):
+    def begin_authorization(self, state, allow_send=False):
         config = provider_config("outlook")
         try:
             flow = self._application().initiate_auth_code_flow(
-                OUTLOOK_SCOPES,
+                mail_scopes("outlook", allow_send),
                 redirect_uri=config["redirect_uri"],
                 state=state,
                 prompt="select_account",
@@ -82,9 +82,13 @@ class OutlookProvider(MailProvider):
             profile.get("mail") or profile.get("userPrincipalName", ""),
             profile.get("displayName", ""),
         )
-        return identity, {"cache": cache.serialize(), "home_account_id": home_id}
+        return identity, {
+            "cache": cache.serialize(),
+            "home_account_id": home_id,
+            "scopes": result.get("scope", "").split(),
+        }
 
-    def access_token(self, saved, force_refresh=False):
+    def access_token(self, saved, force_refresh=False, allow_send=False):
         try:
             cache = msal.SerializableTokenCache()
             cache.deserialize(saved["cache"])
@@ -100,7 +104,7 @@ class OutlookProvider(MailProvider):
             if account is None:
                 raise ReconnectRequired()
             result = app.acquire_token_silent_with_error(
-                OUTLOOK_SCOPES, account=account, force_refresh=force_refresh
+                mail_scopes("outlook", allow_send), account=account, force_refresh=force_refresh
             )
         except MailError:
             raise
@@ -117,7 +121,30 @@ class OutlookProvider(MailProvider):
         return result["access_token"], {
             "cache": cache.serialize(),
             "home_account_id": saved["home_account_id"],
+            "scopes": result.get("scope", "").split() or saved.get("scopes", OUTLOOK_SCOPES),
         }
+
+    def send_reply(self, token, source, content, operation_id):
+        # 使用原生 reply 保留会话关系，所有可编辑字段均来自已批准的内容快照。
+        payload = {
+            "message": {
+                "subject": content["subject"],
+                "body": {"contentType": "Text", "content": content["body"]},
+                "toRecipients": [
+                    {"emailAddress": {"address": address}} for address in content["to"]
+                ],
+                "ccRecipients": [
+                    {"emailAddress": {"address": address}} for address in content["cc"]
+                ],
+            }
+        }
+        return self.post_json(
+            token,
+            f"{API}/me/messages/{quote(source.provider_message_id, safe='')}/reply",
+            payload,
+            accepted_status=202,
+            operation_id=operation_id,
+        )
 
     @staticmethod
     def _next_url(cursor):
@@ -207,6 +234,7 @@ class OutlookProvider(MailProvider):
             sender=address(data.get("from") or {}),
             to_recipients=[address(item) for item in data.get("toRecipients") or []],
             cc_recipients=[address(item) for item in data.get("ccRecipients") or []],
+            reply_to=[address(item) for item in data.get("replyTo") or []],
             received_at=message_date(data.get("receivedDateTime")),
             sent_at=message_date(data.get("sentDateTime")),
             snippet=data.get("bodyPreview") or "",

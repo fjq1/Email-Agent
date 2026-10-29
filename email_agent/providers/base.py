@@ -1,4 +1,4 @@
-"""服务商统一数据结构和受限 HTTP 读取，业务层无需处理各平台 JSON 差异。"""
+"""统一数据结构和受约束的 HTTP 读写，隔离服务商协议与发送结果的不确定性。"""
 
 import json
 from dataclasses import dataclass, field
@@ -25,6 +25,13 @@ class AccessTokenExpired(MailError):
         super().__init__("访问令牌已失效。", "access_token_expired")
 
 
+class SendOutcomeUnknown(MailError):
+    def __init__(self):
+        super().__init__(
+            "发送结果无法确认，请先到原邮箱核对；本应用不会再次发送。", "send_outcome_unknown"
+        )
+
+
 @dataclass
 class MailIdentity:
     account_id: str
@@ -41,6 +48,8 @@ class MessageData:
     sender: dict = field(default_factory=dict)
     to_recipients: list = field(default_factory=list)
     cc_recipients: list = field(default_factory=list)
+    reply_to: list = field(default_factory=list)
+    references: str = ""
     received_at: datetime | None = None
     sent_at: datetime | None = None
     snippet: str = ""
@@ -59,7 +68,7 @@ class MessagePage:
 class MailProvider:
     allowed_hosts = set()
 
-    def get_json(self, token, url, params=None):
+    def _validate_url(self, url):
         try:
             target = urlsplit(url)
             valid = (
@@ -74,6 +83,9 @@ class MailProvider:
             valid = False
         if not valid:
             raise MailError("邮箱接口返回了无效的请求地址，请重新检索。", "unsafe_provider_url")
+
+    def get_json(self, token, url, params=None):
+        self._validate_url(url)
         headers = {"Authorization": f"Bearer {token}"}
         headers.update(self.request_headers())
         try:
@@ -112,6 +124,48 @@ class MailProvider:
 
     def request_headers(self):
         return {}
+
+    def post_json(self, token, url, payload, *, accepted_status=200, operation_id=None):
+        """写请求绝不自动重试；网络异常、5xx 和无法解析的成功响应均保留为待核对。"""
+        self._validate_url(url)
+        headers = {"Authorization": f"Bearer {token}", **self.request_headers()}
+        if operation_id:
+            headers["client-request-id"] = str(operation_id)
+        try:
+            with httpx.Client(timeout=settings.MAIL_HTTP_TIMEOUT, follow_redirects=False) as client:
+                with client.stream("POST", url, json=payload, headers=headers) as response:
+                    if response.status_code == 401:
+                        raise AccessTokenExpired()
+                    if response.status_code == 403:
+                        # 写权限不足不能影响此前有效的只读授权。
+                        try:
+                            self._forbidden(response)
+                        except ReconnectRequired:
+                            raise MailError(
+                                "发送权限不足，请启用发送权限或请组织管理员批准。",
+                                "send_permission_denied",
+                            ) from None
+                    if response.status_code == 429:
+                        raise MailError("邮箱服务限制了发送频率，请稍后手动重试。", "rate_limited")
+                    if response.status_code in {400, 404, 413, 422}:
+                        raise MailError(
+                            "邮箱服务未接受发送，请检查收件人、内容或来源邮件是否存在。",
+                            "send_rejected",
+                        )
+                    if response.status_code != accepted_status:
+                        raise SendOutcomeUnknown()
+                    if accepted_status == 202:
+                        return {"accepted": True, "delivery_confirmed": False}
+                    data = json.loads(self._response_bytes(response))
+                    if not isinstance(data, dict) or not data.get("id"):
+                        raise SendOutcomeUnknown()
+                    return data
+        except (httpx.RequestError, ValueError, UnicodeError):
+            raise SendOutcomeUnknown() from None
+        except MailError as exc:
+            if exc.code == "response_too_large":
+                raise SendOutcomeUnknown() from None
+            raise
 
     @staticmethod
     def _response_bytes(response):

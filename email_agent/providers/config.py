@@ -1,4 +1,4 @@
-"""邮箱只读权限和 OAuth 配置校验。"""
+"""邮箱权限与 OAuth 配置校验，发送权限由用户按需另行授予。"""
 
 import re
 from urllib.parse import urlsplit
@@ -8,8 +8,25 @@ from django.conf import settings
 from .base import MailError
 
 GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 GMAIL_SCOPES = [GMAIL_READ_SCOPE, "openid", "https://www.googleapis.com/auth/userinfo.email"]
 OUTLOOK_SCOPES = ["User.Read", "Mail.Read"]
+
+
+def mail_scopes(provider, allow_send=False):
+    scopes = GMAIL_SCOPES if provider == "gmail" else OUTLOOK_SCOPES
+    return (
+        [*scopes, GMAIL_SEND_SCOPE if provider == "gmail" else "Mail.Send"]
+        if allow_send
+        else list(scopes)
+    )
+
+
+def has_send_scope(provider, scopes):
+    granted = {scope.casefold() for scope in scopes}
+    if provider == "gmail":
+        return GMAIL_SEND_SCOPE in granted
+    return bool(granted & {"mail.send", "https://graph.microsoft.com/mail.send"})
 
 
 def provider_config(name):
