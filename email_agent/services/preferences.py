@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from email_agent.intelligence.models import PROVIDER_LABELS, provider_configured
 from email_agent.models import MailboxAccount, UserPreference
 
 LANGUAGES = {"auto": "跟随来信语言", "zh": "中文", "en": "英文"}
@@ -20,6 +21,8 @@ def display_preference(key, value):
         if key == "reply_language"
         else TONES.get(value, value)
         if key == "reply_tone"
+        else PROVIDER_LABELS.get(value, value)
+        if key == "model_provider"
         else value,
     }
 
@@ -37,6 +40,10 @@ def validate_preference(key, value):
         raise ValidationError("回复语言请选择 auto、zh 或 en。")
     if key == "reply_tone" and value not in TONES:
         raise ValidationError("回复风格请选择 professional、friendly 或 concise。")
+    if key == "model_provider" and (value not in PROVIDER_LABELS or not provider_configured(value)):
+        raise ValidationError(
+            "该模型平台尚未配置完整，请在 .env 中填写 API Key 和模型名称后重启服务。"
+        )
     return value
 
 
@@ -46,7 +53,10 @@ def effective_preferences(owner, mailbox=None):
     for scope in [None, mailbox] if mailbox else [None]:
         if scope is not None and scope.owner_id != owner.pk:
             raise MailboxAccount.DoesNotExist
-        for item in UserPreference.objects.filter(owner=owner, mailbox=scope, enabled=True):
+        # 平台不是邮件风格偏好：它单独冻结在任务上，不交给模型推断或改写。
+        for item in UserPreference.objects.filter(owner=owner, mailbox=scope, enabled=True).exclude(
+            key=UserPreference.Key.MODEL_PROVIDER
+        ):
             result[item.key] = {
                 "id": str(item.id),
                 "version": item.version,
@@ -69,6 +79,8 @@ def describe_preferences(snapshot):
 
 def save_preference(owner, *, key, value, mailbox=None, expected_version=0, source="settings"):
     value = validate_preference(key, value)
+    if key == UserPreference.Key.MODEL_PROVIDER and mailbox is not None:
+        raise ValidationError("模型平台适用于当前用户的所有邮箱，请选择全局范围。")
     if mailbox and mailbox.owner_id != owner.pk:
         raise MailboxAccount.DoesNotExist
     with transaction.atomic():

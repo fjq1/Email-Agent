@@ -13,6 +13,7 @@ from email_agent.providers.base import MailError
 from email_agent.services.analysis import fingerprint
 from email_agent.services.audit import record_event
 from email_agent.services.mailboxes import read_message
+from email_agent.services.model_selection import check_task_model, proposal_model
 from email_agent.services.reviews import (
     _advance,
     _new_version,
@@ -119,6 +120,11 @@ def revise_draft(proposal_id, owner, *, version, instruction, request_id):
                 before=deepcopy(proposal.content),
             )
             try:
+                # 回复和新邮件都使用初稿平台；切换导航栏选项不会改变对话中的模型。
+                bound_model = proposal_model(proposal)
+                if not bound_model:
+                    raise ValidationError("未找到此草稿的模型记录，请重新发起写信任务。")
+                check_task_model(**bound_model)
                 history = list(
                     proposal.draft_turns.filter(status=DraftTurn.Status.SUCCEEDED).order_by(
                         "-created_at", "-id"
@@ -146,6 +152,7 @@ def revise_draft(proposal_id, owner, *, version, instruction, request_id):
                 if history and history[0].before:
                     conversation[-1]["previous_draft"] = draft_excerpt(history[0].before)
                 result = generate_draft(
+                    provider=bound_model["provider"],
                     mode="revise",
                     instruction=instruction,
                     current=proposal.content,

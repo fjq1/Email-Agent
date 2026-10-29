@@ -27,6 +27,7 @@ from email_agent.services.audit import record_event
 from email_agent.services.command_status import reconcile_status, set_status
 from email_agent.services.drafts import prepare_new_proposal
 from email_agent.services.mailboxes import read_message, search_messages
+from email_agent.services.model_selection import check_task_model, selected_provider
 from email_agent.services.preferences import effective_preferences, save_preference
 from email_agent.services.reviews import check_approvable, decide_proposal, prepare_proposal
 from email_agent.services.search import build_query, matches_metadata
@@ -89,6 +90,8 @@ def create_command(owner, *, mailbox, instruction, timezone_name="", submission_
             raise ValidationError("无效的提交标识，请重新打开指令页面。")
         created = plan is None
         if created:
+            # 在用户行锁内读取默认值；计划一旦创建，后续步骤不再读取用户的新选择。
+            provider = selected_provider(owner)
             run = AgentRun.objects.create(owner=owner, kind="mail_command")
             plan = CommandPlan.objects.create(
                 run=run,
@@ -97,8 +100,8 @@ def create_command(owner, *, mailbox, instruction, timezone_name="", submission_
                 instruction=instruction.strip(),
                 timezone_name=zone,
                 preference_snapshot=preferences,
-                provider=settings.MAIL_ANALYSIS_PROVIDER,
-                model_name=settings.MODEL_PROVIDERS[settings.MAIL_ANALYSIS_PROVIDER]["model"],
+                provider=provider,
+                model_name=settings.MODEL_PROVIDERS[provider]["model"],
             )
             record_event(run, "command_created", f"command:{plan.id}", mailbox_id=str(mailbox.id))
     # 同一提交的拒绝结果直接复用，不能因重复点击再次调用模型或重新开启。
@@ -121,8 +124,10 @@ def compose_plan(plan_id, owner, version):
         try:
             set_status(plan, CommandPlan.Status.PROCESSING)
             if not plan.draft_result:
+                check_task_model(plan.provider, plan.model_name)
                 request = plan.spec["compose"]
                 plan.draft_result = generate_draft(
+                    provider=plan.provider,
                     mode="compose",
                     instruction=plan.instruction,
                     current={
@@ -158,10 +163,10 @@ def parse_plan(plan_id, owner):
         if plan.spec:
             return plan
         try:
-            plan.provider = settings.MAIL_ANALYSIS_PROVIDER
-            plan.model_name = settings.MODEL_PROVIDERS[plan.provider]["model"]
+            check_task_model(plan.provider, plan.model_name)
             spec, usage = parse_command(
                 plan.instruction,
+                provider=plan.provider,
                 mailbox=plan.mailbox,
                 timezone_name=plan.timezone_name,
                 current_time=timezone.now().astimezone(ZoneInfo(plan.timezone_name)),
@@ -317,10 +322,12 @@ def process_plan(plan_id, owner, version, item_ids=(), *, retry_failed=False):
             :CHUNK_SIZE
         ]:
             try:
+                check_task_model(plan.provider, plan.model_name)
                 read_message(plan.mailbox_id, owner, item.message_id)
                 analysis = analyze_message(
                     item.message_id,
                     owner,
+                    provider=plan.provider,
                     timezone_name=plan.timezone_name,
                     preferences=plan.preference_snapshot,
                     processing_options={**plan.spec["options"], "action": plan.spec["action"]},

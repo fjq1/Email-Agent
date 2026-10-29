@@ -57,7 +57,16 @@ def model_api(monkeypatch, settings):
 
     def respond(request):
         payload = json.loads(request.content)
-        value = json.loads(payload["messages"][1]["content"])
+        messages = payload.get("messages") or payload["input"]
+        content = messages[1]["content"]
+        if isinstance(content, list):
+            content = content[0]["text"]
+        value = json.loads(content)
+        value["_model_request"] = {
+            "host": request.url.host,
+            "model": payload["model"],
+            "enable_thinking": payload.get("enable_thinking"),
+        }
         captured.append(value)
         if "draft_mode" in value:
             result = draft_outputs.pop(0)
@@ -98,13 +107,42 @@ def model_api(monkeypatch, settings):
                 },
                 "uncertainties": [],
             }
+        if request.url.path.endswith("/responses"):
+            return httpx2.Response(
+                200,
+                json={
+                    "id": "resp_command_test",
+                    "object": "response",
+                    "created_at": 1,
+                    "model": payload["model"],
+                    "status": "completed",
+                    "output": [
+                        {
+                            "id": "msg_command_test",
+                            "type": "message",
+                            "role": "assistant",
+                            "status": "completed",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": json.dumps(result),
+                                    "annotations": [],
+                                }
+                            ],
+                        }
+                    ],
+                    "parallel_tool_calls": True,
+                    "tool_choice": "auto",
+                    "tools": [],
+                },
+            )
         return httpx2.Response(
             200,
             json={
                 "id": "chat-command-test",
                 "object": "chat.completion",
                 "created": 1,
-                "model": settings.MODEL_PROVIDERS["bailian"]["model"],
+                "model": payload["model"],
                 "choices": [
                     {
                         "index": 0,
@@ -241,6 +279,45 @@ def test_preference_confirmation_scope_edit_disable_delete(client, owner, mailbo
     assert not UserPreference.objects.filter(pk=scoped.id).exists()
 
 
+def test_provider_selector_saves_per_user_and_rejects_missing_configuration(
+    client, owner, mailbox, model_api, settings, django_user_model
+):
+    """仅保存明确的平台选择；不探测模型接口，不泄漏密钥，也不接受邮箱级平台。"""
+    from email_agent.services.model_selection import selected_provider
+
+    settings.MODEL_PROVIDERS["deepseek"]["api_key"] = "test-deepseek-selector"
+    settings.MODEL_PROVIDERS["openai"]["api_key"] = ""
+    client.force_login(owner)
+    page = client.get(reverse("commands"))
+    assert not UserPreference.objects.exists()
+    options = page.context["model_selector"]["options"]
+    assert len(options) == 3 and not options[2]["configured"]
+    for config in settings.MODEL_PROVIDERS.values():
+        assert config["model"] in page.content.decode()
+        if config["api_key"]:
+            assert config["api_key"] not in page.content.decode()
+    response = client.post(
+        reverse("model_provider_switch"),
+        {"provider": "deepseek", "version": 0, "next": reverse("commands")},
+        follow=True,
+    )
+    assert response.status_code == 200 and selected_provider(owner) == "deepseek"
+    assert "model_provider" not in effective_preferences(owner, mailbox)
+    other = django_user_model.objects.create_user(username="other-model-user")
+    assert selected_provider(other) == "bailian"
+    for provider, version in [("openai", 1), ("unknown", 1), ("bailian", 0)]:
+        client.post(reverse("model_provider_switch"), {"provider": provider, "version": version})
+        assert selected_provider(owner) == "deepseek"
+    with pytest.raises(ValidationError, match="全局"):
+        save_preference(owner, key="model_provider", value="deepseek", mailbox=mailbox)
+    response = client.post(
+        reverse("model_provider_switch"),
+        {"provider": "bailian", "version": 1, "next": "https://external.example/"},
+    )
+    assert response.url == reverse("commands")
+    assert selected_provider(owner) == "bailian" and not model_api[1]
+
+
 @pytest.mark.parametrize("provider", ["gmail", "outlook"])
 def test_command_preview_search_scope_and_repeated_submit(
     client, owner, mailbox, model_api, mail_api, provider
@@ -286,14 +363,19 @@ def test_command_preview_search_scope_and_repeated_submit(
         assert "received>=" in request.url.params["$search"]
 
 
-def test_chunked_analysis_and_explicit_batch_approval(client, owner, mailbox, model_api, mail_api):
+def test_chunked_analysis_and_explicit_batch_approval(
+    client, owner, mailbox, model_api, mail_api, settings
+):
     save_preference(owner, key="reply_tone", value="concise")
     save_preference(owner, key="signature", value="测试签名")
     plan = ready_plan(owner, mailbox, model_api)
+    settings.MODEL_PROVIDERS["deepseek"]["api_key"] = "test-deepseek"
+    save_preference(owner, key="model_provider", value="deepseek")
     assert plan.status == "processing" and plan.items.filter(status="done").count() == 2
     assert not TaskItem.objects.exists() and not ActionExecution.objects.exists()
     plan = commands.process_plan(plan.id, owner, plan.version)
     assert plan.status == "ready" and plan.actions.count() == 3
+    assert set(plan.items.values_list("analysis__provider", flat=True)) == {"bailian"}
     analysis = plan.items.first().analysis
     assert analysis.payload["reply_draft"]["body"].endswith("测试签名")
     assert model_api[1][1]["handling_style"]["reply_tone"] == "concise"
@@ -363,9 +445,19 @@ def test_command_preference_requires_its_own_confirmation_and_owner(
     assert client.get(reverse("preference_edit", args=[preference.id])).status_code == 404
 
 
-@pytest.mark.parametrize("provider", ["gmail", "outlook"])
+@pytest.mark.parametrize(
+    "provider,model_provider", [("gmail", "bailian"), ("outlook", "deepseek"), ("gmail", "openai")]
+)
 def test_compose_command_conversation_then_explicit_send(
-    client, owner, mailbox, model_api, mail_api, provider, django_user_model
+    client,
+    owner,
+    mailbox,
+    model_api,
+    mail_api,
+    provider,
+    model_provider,
+    django_user_model,
+    settings,
 ):
     """双平台写信主流程：两轮修改、错误不覆盖、最后明确确认才发送。"""
     from email import policy
@@ -375,6 +467,9 @@ def test_compose_command_conversation_then_explicit_send(
 
     mailbox.provider, mailbox.can_send = provider, True
     mailbox.save()
+    settings.MODEL_PROVIDERS[model_provider]["api_key"] = "test-selected-provider"
+    settings.MAIL_ANALYSIS_EXTRA_BODY = {"enable_thinking": False}
+    save_preference(owner, key="model_provider", value=model_provider)
     save_preference(owner, key="signature", value="测试签名")
     model_api[0].update(
         action="compose_email",
@@ -414,6 +509,8 @@ def test_compose_command_conversation_then_explicit_send(
     }
     assert client.post(reverse("commands"), data, follow=True).status_code == 200
     plan = CommandPlan.objects.get()
+    assert plan.provider == model_provider
+    assert plan.model_name == settings.MODEL_PROVIDERS[model_provider]["model"]
     proposal = plan.actions.get().proposal
     assert proposal.kind == "send_email" and proposal.analysis_id is None
     assert proposal.mailbox_id == mailbox.id and plan.status == "ready"
@@ -422,6 +519,8 @@ def test_compose_command_conversation_then_explicit_send(
     assert len(model_api[1]) == 2
     page = client.get(reverse("action_review", args=[proposal.id]))
     assert "新邮件审核" in page.content.decode() and "让助理修改草稿" in page.content.decode()
+    # 改变用户的新任务默认值，当前草稿的后续对话仍必须使用初稿平台。
+    save_preference(owner, key="model_provider", value="bailian", expected_version=1)
     first = {"version": 1, "instruction": "再友好一些。", "request_id": uuid.uuid4()}
     assert (
         client.post(
@@ -458,6 +557,14 @@ def test_compose_command_conversation_then_explicit_send(
     proposal.refresh_from_db()
     assert proposal.version == 3 and proposal.content["subject"] == "下周项目讨论"
     assert DraftTurn.objects.filter(status="failed").count() == 1
+    assert set(DraftTurn.objects.filter(status="succeeded").values_list("provider", flat=True)) == {
+        model_provider
+    }
+    for captured in model_api[1]:
+        request = captured["_model_request"]
+        assert request["model"] == plan.model_name
+        assert request["host"] in settings.MODEL_PROVIDERS[model_provider]["base_url"]
+        assert request["enable_thinking"] is (False if model_provider == "bailian" else None)
     assert not mail_api and not ActionExecution.objects.exists()
     with pytest.raises(ValidationError, match="过期"):
         decide_proposal(proposal.id, owner, 1, "approve")

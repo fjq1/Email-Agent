@@ -17,6 +17,7 @@ class UserPreference(TimestampedModel):
         LANGUAGE = "reply_language", "回复语言"
         TONE = "reply_tone", "回复风格"
         SIGNATURE = "signature", "邮件签名"
+        MODEL_PROVIDER = "model_provider", "模型平台"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
@@ -30,6 +31,10 @@ class UserPreference(TimestampedModel):
 
     @property
     def value_label(self):
+        if self.key == self.Key.MODEL_PROVIDER:
+            from email_agent.intelligence.models import PROVIDER_LABELS
+
+            return PROVIDER_LABELS.get(self.value, self.value)
         labels = {
             "reply_language": {"auto": "跟随来信语言", "zh": "中文", "en": "英文"},
             "reply_tone": {"professional": "正式、专业", "friendly": "友好", "concise": "简洁"},

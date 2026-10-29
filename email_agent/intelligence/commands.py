@@ -4,12 +4,11 @@ import json
 from datetime import date
 from typing import Literal
 
-from django.conf import settings
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import Field, model_validator
 
 from .drafting import ComposeRequest, mentioned_addresses
-from .models import get_chat_model
+from .models import get_chat_model, mail_model_extra_body
 from .schemas import StructuredData
 from .understanding import UnderstandingError
 
@@ -93,11 +92,9 @@ unsupported 的 explanation 和 clarifications 只用简洁自然的中文说明
 """
 
 
-def parse_command(instruction, *, mailbox, timezone_name, current_time):
+def parse_command(instruction, *, mailbox, timezone_name, current_time, provider):
     try:
-        client = get_chat_model(
-            settings.MAIL_ANALYSIS_PROVIDER, extra_body=settings.MAIL_ANALYSIS_EXTRA_BODY
-        )
+        client = get_chat_model(provider, extra_body=mail_model_extra_body(provider))
         structured = client.with_structured_output(
             CommandSpec, method="json_mode", include_raw=True
         )

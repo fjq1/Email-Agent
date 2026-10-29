@@ -2,13 +2,12 @@
 
 import json
 
-from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import ValidationError
 
-from .models import get_chat_model
+from .models import get_chat_model, mail_model_extra_body
 from .schemas import MailUnderstanding
 
 PROMPT_VERSION = "mail-understanding-v3"
@@ -136,7 +135,7 @@ def ground_result(result, snapshot):
 
 def understand_mail(snapshot, provider):
     try:
-        model = get_chat_model(provider, extra_body=settings.MAIL_ANALYSIS_EXTRA_BODY)
+        model = get_chat_model(provider, extra_body=mail_model_extra_body(provider))
     except ImproperlyConfigured:
         raise UnderstandingError(
             "所选模型尚未正确配置，请检查模型名称、API Key 和接口地址。", "model_not_configured"

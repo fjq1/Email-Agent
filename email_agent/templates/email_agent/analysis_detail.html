@@ -6,7 +6,7 @@
 <div class="page-heading"><div><p class="eyebrow">MAIL INTELLIGENCE</p><h1>邮件分析</h1><p>摘要、事项与回复建议，均可回到原文核对。</p></div><span class="status-badge" data-tone="{{ analysis.run.status|status_tone }}">{{ analysis.run.get_status_display }}</span></div>
 <section>
   <h2>{{ analysis.source_snapshot.subject|default:"（无主题）" }}</h2>
-  <p class="muted">{{ analysis.message.mailbox.email_address }} · {{ analysis.model_name }}</p>
+  <p class="muted">{{ analysis.message.mailbox.email_address }} · {{ analysis.provider|provider_label }} · {{ analysis.model_name }}</p>
   <p class="muted">分析时区：{{ analysis.timezone_name }} · {{ analysis.created_at|date:"Y-m-d H:i:s T" }}</p>
   {% if preference_display %}<details><summary>本次使用的已确认偏好</summary><ul>{% for item in preference_display %}<li>{{ item.label }}：{{ item.display_value }} · 第 {{ item.version }} 版</li>{% endfor %}</ul></details>{% endif %}
   {% if request_style %}<p>本次临时指定：{% for item in request_style %}{{ item.label }}：{{ item.display_value }} {% endfor %}</p>{% endif %}

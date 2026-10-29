@@ -7,6 +7,7 @@
   <div><p class="eyebrow">REVIEW &amp; CONFIRM</p><h1>{% if proposal.kind == 'send_email' %}新邮件审核{% elif proposal.is_email %}回复审核{% else %}待办审核{% endif %}</h1><p>核对这份建议，由你决定下一步。</p></div>
   <span class="status-badge" data-tone="{{ proposal.review_state|status_tone }}">{{ proposal.review_state|review_label }}</span>
 </div>
+{% if draft_model %}<p class="muted">本草稿模型：{{ draft_model.provider|provider_label }} · {{ draft_model.model_name }}。对话修改沿用此模型。</p>{% endif %}
 <div class="review-steps" aria-label="审核进度">
   <span><b>1</b>生成建议</span>
   <span {% if proposal.review_state == 'pending' %}class="current"{% endif %}><b>2</b>核对与确认</span>

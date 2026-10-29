@@ -38,8 +38,8 @@
         <h2>{{ provider.label }}</h2>
         <p><code>{{ provider.model }}</code></p>
         <p>
-          {% if provider.configured %}<span class="badge">已填写密钥，连接待验证</span>{% else %}等待填写 API Key{% endif %}
-          {% if provider.default %} · 默认平台{% endif %}
+          {% if provider.configured %}<span class="badge">已填写配置，连接待验证</span>{% else %}等待填写 API Key 和模型名称{% endif %}
+          {% if provider.default %} · 新任务当前使用{% endif %}
         </p>
       </div>
     {% endfor %}

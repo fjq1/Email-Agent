@@ -11,6 +11,7 @@ from django.views.decorators.http import require_GET, require_POST
 from email_agent.intelligence.models import provider_statuses
 from email_agent.models import AgentRun, MailboxAccount
 from email_agent.services.health import infrastructure_status
+from email_agent.services.model_selection import selected_provider
 from email_agent.services.oauth import connection_options
 from email_agent.services.runs import create_probe, decide_probe, resume_probe
 
@@ -39,7 +40,7 @@ def dashboard(request):
         "email_agent/dashboard.html",
         {
             "runs": AgentRun.objects.filter(owner=request.user, kind="infrastructure_probe")[:20],
-            "providers": provider_statuses(),
+            "providers": provider_statuses(selected_provider(request.user)),
             "mailboxes": MailboxAccount.objects.filter(owner=request.user),
             "mail_connections": connection_options(),
         },

@@ -14,6 +14,7 @@ from email_agent.intelligence.models import PROVIDER_LABELS
 from email_agent.models import EmailMessage, MailboxAccount
 from email_agent.providers.base import MailError
 from email_agent.services.mailboxes import read_message, read_thread, search_messages
+from email_agent.services.model_selection import selected_provider
 from email_agent.services.oauth import (
     begin_connection,
     connection_options,
@@ -151,9 +152,7 @@ def message_detail(request, account_id, message_id):
                     or settings.TIME_ZONE
                 }
             ),
-            "analysis_provider": PROVIDER_LABELS.get(
-                settings.MAIL_ANALYSIS_PROVIDER, settings.MAIL_ANALYSIS_PROVIDER
-            ),
+            "analysis_provider": PROVIDER_LABELS.get(selected_provider(request.user)),
             "analyses": email.analyses.select_related("run")[:5],
         },
     )

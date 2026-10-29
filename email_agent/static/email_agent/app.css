@@ -38,7 +38,15 @@ nav > a.active { color: #087567; background: var(--accent-soft); font-weight: 70
 .sidebar-note small { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; }
 .presence-dot { display: inline-block; background: var(--accent); width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; margin-top: 6px; }
 .workspace { margin-left: 230px; min-width: 0; }
-.topbar { min-height: 76px; padding: 0 38px; border-bottom: 1px solid var(--line); background: #ffffffd9; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.topbar { min-height: 100px; padding: 12px 38px; border-bottom: 1px solid var(--line); background: #ffffffd9; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.topbar-tools { display: flex; align-items: center; gap: 24px; min-width: 0; flex-wrap: wrap; }
+/* 平台选择属于新任务默认设置，辅助文字始终可见，避免误解为切换当前任务。 */
+.model-selector { display: flex; align-items: center; gap: 10px; max-width: 100%; }
+.model-selector > div { min-width: 0; }
+.model-selector label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 3px; }
+.model-selector select { display: block; width: 340px; max-width: 100%; min-height: 34px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 12px; color: var(--ink); background: #fff; }
+.model-selector-help { display: block; font-size: 10px; color: var(--muted); margin-top: 3px; }
+.model-selector button { min-height: 34px; padding: 6px 13px; font-size: 12px; flex-shrink: 0; }
 .workspace-label { font-size: 13px; color: var(--muted); }
 .user-menu { display: flex; align-items: center; gap: 11px; font-size: 13px; }
 .avatar { width: 31px; height: 31px; border-radius: 50%; background: #e8eef4; color: #4c647a; display: grid; place-items: center; font-weight: 700; }
@@ -196,7 +204,11 @@ textarea[readonly] { background: #f7f9fb; }
   nav > a { padding: 9px 11px; font-size: 12px; margin: 0; flex-shrink: 0; gap: 6px; }
   nav .icon { width: 16px; height: 16px; }
   .workspace { margin-left: 0; }
-  .topbar { min-height: 57px; padding: 0 18px; }
+  .topbar { min-height: 57px; padding: 14px 18px; }
+  .topbar-tools { width: 100%; gap: 14px; justify-content: space-between; }
+  .model-selector { width: 100%; }
+  .model-selector > div { flex: 1; }
+  .model-selector select { width: 100%; }
   main { padding: 23px 16px 16px; }
   section, .card { padding: 21px 18px; }
   h1 { font-size: 24px; } h2 { font-size: 18px; }

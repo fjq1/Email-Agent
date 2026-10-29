@@ -11,7 +11,7 @@ from django.core.exceptions import ImproperlyConfigured
 from langchain_deepseek import ChatDeepSeek
 from langchain_openai import ChatOpenAI
 
-from email_agent.intelligence.models import get_chat_model, provider_statuses
+from email_agent.intelligence.models import get_chat_model, mail_model_extra_body, provider_statuses
 
 
 @pytest.fixture
@@ -59,8 +59,14 @@ def test_insecure_or_credential_bearing_endpoint_is_rejected(settings, configure
         get_chat_model("bailian")
 
 
-def test_public_status_never_contains_credentials(configured_providers):
+def test_public_status_never_contains_credentials(configured_providers, settings):
     assert "test-key-for" not in str(provider_statuses())
+    settings.MAIL_ANALYSIS_PROVIDER = "bailian"
+    settings.MAIL_ANALYSIS_EXTRA_BODY = {"enable_thinking": False}
+    assert mail_model_extra_body("bailian") == {"enable_thinking": False}
+    assert mail_model_extra_body("deepseek") == mail_model_extra_body("openai") == {}
+    configured_providers["openai"]["model"] = ""
+    assert not provider_statuses()[2]["configured"]
 
 
 @pytest.mark.parametrize(

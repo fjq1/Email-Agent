@@ -7,6 +7,7 @@ from django import forms
 
 from email_agent.forms import VersionedForm
 from email_agent.intelligence.commands import SearchFilters
+from email_agent.intelligence.models import PROVIDER_LABELS, provider_statuses
 from email_agent.models import MailboxAccount, UserPreference
 from email_agent.services.preferences import LANGUAGES, TONES, validate_preference
 
@@ -176,6 +177,17 @@ class PreferenceForm(forms.Form):
                 max_length=80,
                 help_text="例如 Asia/Shanghai 或 America/New_York。",
             )
+        elif key == "model_provider":
+            self.fields["value"] = forms.ChoiceField(
+                label="模型平台",
+                choices=[
+                    (item["name"], f"{item['label']} · {item['model'] or '未配置模型'}")
+                    for item in provider_statuses()
+                ],
+                help_text="模型名称由 .env 配置。保存后仅影响新任务。",
+            )
+            self.fields["mailbox"].disabled = True
+            self.initial["mailbox"] = None
         if item:
             self.initial.update(
                 mailbox=item.mailbox_id, key=item.key, value=item.value, version=item.version
@@ -188,3 +200,10 @@ class PreferenceForm(forms.Form):
         if "key" in data and "value" in data:
             data["value"] = validate_preference(data["key"], data["value"])
         return data
+
+
+class ModelProviderForm(forms.Form):
+    """只接收预设平台标识，不接受网页提交的密钥、地址或模型名。"""
+
+    provider = forms.ChoiceField(choices=PROVIDER_LABELS.items())
+    version = forms.IntegerField(min_value=0)

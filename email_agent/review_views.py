@@ -20,6 +20,7 @@ from email_agent.models import (
 )
 from email_agent.providers.base import MailError
 from email_agent.services.drafts import revise_draft
+from email_agent.services.model_selection import proposal_model
 from email_agent.services.reviews import (
     can_edit,
     can_restart,
@@ -93,6 +94,7 @@ def detail(request, proposal_id):
         "email_agent/review_detail.html",
         {
             "proposal": proposal,
+            "draft_model": proposal_model(proposal) if proposal.is_email else {},
             "execution": execution,
             "editable": can_edit(proposal),
             "restartable": can_restart(proposal),

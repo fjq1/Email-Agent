@@ -7,6 +7,7 @@
 <section>
   <blockquote>{{ plan.instruction }}</blockquote>
   <p>本次邮箱：{{ plan.mailbox.email_address }} · {{ plan.mailbox.get_provider_display }} · 时区 {{ plan.timezone_name }}</p>
+  <p class="muted">本任务模型：{{ plan.provider|provider_label }} · {{ plan.model_name }}</p>
   {% if plan.error_message %}<p class="warning">{{ plan.error_message }}</p>{% endif %}
   {% if plan.spec %}
     <p>处理目标：{{ action_label }}。{{ plan.spec.explanation }}</p>

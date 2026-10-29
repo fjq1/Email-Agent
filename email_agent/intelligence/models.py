@@ -54,15 +54,26 @@ def get_chat_model(provider: str | None = None, *, extra_body: dict | None = Non
     return ChatOpenAI(base_url=config["base_url"], use_responses_api=False, **options)
 
 
-def provider_statuses() -> list[dict]:
+def provider_configured(provider: str) -> bool:
+    """可选状态仅检查本地配置是否齐全，不发请求验证密钥或模型权限。"""
+    config = settings.MODEL_PROVIDERS.get(provider, {})
+    return bool(config.get("api_key", "").strip() and config.get("model", "").strip())
+
+
+def mail_model_extra_body(provider: str) -> dict:
+    """旧的邮件场景参数只属于原默认平台，避免百炼参数被带到其他接口。"""
+    return settings.MAIL_ANALYSIS_EXTRA_BODY if provider == settings.MAIL_ANALYSIS_PROVIDER else {}
+
+
+def provider_statuses(selected: str | None = None) -> list[dict]:
     """只向页面暴露配置状态，不返回密钥和接口地址。"""
     return [
         {
             "name": name,
             "label": PROVIDER_LABELS[name],
             "model": config["model"],
-            "configured": bool(config["api_key"].strip()),
-            "default": name == settings.LLM_DEFAULT_PROVIDER,
+            "configured": provider_configured(name),
+            "default": name == (selected or settings.LLM_DEFAULT_PROVIDER),
         }
         for name, config in settings.MODEL_PROVIDERS.items()
     ]

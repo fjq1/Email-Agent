@@ -9,7 +9,7 @@ from django.core.validators import validate_email
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import Field, field_validator
 
-from .models import get_chat_model
+from .models import get_chat_model, mail_model_extra_body
 from .schemas import StructuredData
 from .understanding import UnderstandingError
 
@@ -93,10 +93,9 @@ to/cc 未要求改变时填 null，代表原样保留。summary 用中文简要�
 
 
 def generate_draft(
-    *, mode, instruction, current, preferences, source=None, history=(), options=None
+    *, mode, instruction, current, preferences, provider, source=None, history=(), options=None
 ):
     """一次请求只生成一份完整新草稿，失败不覆盖原内容；不自动跨模型回退。"""
-    provider = settings.MAIL_ANALYSIS_PROVIDER
     try:
         style = {
             key: item["value"]
@@ -109,7 +108,7 @@ def generate_draft(
         had_signature = bool(signature and draft.get("body", "").rstrip().endswith(signature))
         if had_signature:
             draft["body"] = draft["body"].rstrip()[: -len(signature)].rstrip()
-        model = get_chat_model(provider, extra_body=settings.MAIL_ANALYSIS_EXTRA_BODY)
+        model = get_chat_model(provider, extra_body=mail_model_extra_body(provider))
         response = model.with_structured_output(
             DraftOutput, method="json_mode", include_raw=True
         ).invoke(

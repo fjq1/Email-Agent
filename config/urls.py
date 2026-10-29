@@ -26,6 +26,11 @@ urlpatterns = [
     path("commands/<uuid:plan_id>/edit/", command_views.edit, name="command_edit"),
     path("commands/<uuid:plan_id>/<str:operation>/", command_views.act, name="command_act"),
     path("preferences/", command_views.preferences, name="preferences"),
+    path(
+        "preferences/model-provider/",
+        command_views.switch_model_provider,
+        name="model_provider_switch",
+    ),
     path("preferences/<uuid:preference_id>/", command_views.preferences, name="preference_edit"),
     path(
         "preferences/<uuid:preference_id>/action/",

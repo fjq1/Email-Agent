@@ -6,6 +6,13 @@ register = template.Library()
 
 
 @register.filter
+def provider_label(value):
+    from email_agent.intelligence.models import PROVIDER_LABELS
+
+    return PROVIDER_LABELS.get(value, value)
+
+
+@register.filter
 def review_label(value):
     return {
         "pending": "待审核",

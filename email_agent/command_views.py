@@ -1,11 +1,11 @@
 """指令与偏好的界面入口。GET 只展示，解析/检索/分析/批准/保存均使用 POST。"""
 
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.db.models import prefetch_related_objects
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
@@ -13,6 +13,7 @@ from email_agent.command_forms import (
     ACTION_CHOICES,
     CommandSpecForm,
     CommandStartForm,
+    ModelProviderForm,
     PreferenceForm,
 )
 from email_agent.models import ActionExecution, CommandPlan, TaskItem, UserPreference
@@ -55,7 +56,6 @@ def index(request):
         {
             "form": form,
             "plans": plans,
-            "analysis_provider": settings.MAIL_ANALYSIS_PROVIDER,
         },
     )
 
@@ -288,3 +288,32 @@ def preference_action(request, preference_id):
     except ValidationError as exc:
         messages.error(request, error_message(exc))
     return redirect("preferences")
+
+
+@login_required
+@require_POST
+@never_cache
+def switch_model_provider(request):
+    form = ModelProviderForm(request.POST)
+    if form.is_valid():
+        try:
+            save_preference(
+                request.user,
+                key=UserPreference.Key.MODEL_PROVIDER,
+                value=form.cleaned_data["provider"],
+                expected_version=form.cleaned_data["version"],
+                source="model_selector",
+            )
+        except ValidationError as exc:
+            messages.error(request, error_message(exc))
+        else:
+            messages.success(request, "模型平台已切换，仅对新任务生效。已有任务继续使用原平台。")
+    else:
+        messages.error(request, "平台选择无效，请刷新页面后重新选择。")
+    # 返回提交前的页面，仅允许站内地址，避免把 next 参数变成外部跳转入口。
+    target = request.POST.get("next", "")
+    if url_has_allowed_host_and_scheme(
+        target, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return redirect(target)
+    return redirect("commands")

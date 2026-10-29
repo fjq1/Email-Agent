@@ -41,7 +41,25 @@
 <div class="workspace">
   <header class="topbar">
     <span class="workspace-label">{% if user.is_authenticated %}个人工作空间{% else %}邮件助理{% endif %}</span>
-    {% if user.is_authenticated %}<div class="user-menu"><span class="avatar">{{ user.username|first|upper }}</span><span>{{ user.username }}</span><form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="text-button">退出登录</button></form></div>{% endif %}
+    {% if user.is_authenticated %}
+    <div class="topbar-tools">
+      <form class="model-selector" method="post" action="{% url 'model_provider_switch' %}">
+        {% csrf_token %}
+        <input type="hidden" name="version" value="{{ model_selector.version }}">
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <div><label for="model-provider">新任务使用的模型</label>
+          <select id="model-provider" name="provider" aria-describedby="model-provider-help">
+            {% for option in model_selector.options %}
+            <option value="{{ option.name }}"{% if option.name == model_selector.provider %} selected{% endif %}{% if not option.configured %} disabled{% endif %}>{{ option.label }} · {{ option.model|default:"未配置模型" }}{% if not option.configured %}（未配置）{% endif %}</option>
+            {% endfor %}
+          </select>
+          <span id="model-provider-help" class="model-selector-help">已有任务沿用原平台 · 未配置的平台不可选</span>
+        </div>
+        <button class="secondary" type="submit">切换</button>
+      </form>
+      <div class="user-menu"><span class="avatar">{{ user.username|first|upper }}</span><span>{{ user.username }}</span><form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="text-button">退出登录</button></form></div>
+    </div>
+    {% endif %}
   </header>
   <main id="main-content" tabindex="-1">
     {% for message in messages %}<div class="notice {{ message.tags }}" role="status">{{ message }}</div>{% endfor %}

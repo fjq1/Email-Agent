@@ -102,7 +102,7 @@ def model_api(monkeypatch, settings):
                 "id": "chatcmpl-analysis",
                 "object": "chat.completion",
                 "created": 1,
-                "model": settings.MODEL_PROVIDERS["bailian"]["model"],
+                "model": calls[-1]["model"],
                 "choices": [
                     {
                         "index": 0,
@@ -125,7 +125,14 @@ def model_api(monkeypatch, settings):
         yield calls, outputs
 
 
-def test_normal_analysis_page_and_duplicate_click_reuse_result(client, owner, email, model_api):
+@pytest.mark.parametrize("model_provider", ["bailian", "deepseek"])
+def test_normal_analysis_page_and_duplicate_click_reuse_result(
+    client, owner, email, model_api, settings, model_provider
+):
+    from email_agent.services.preferences import save_preference
+
+    settings.MODEL_PROVIDERS[model_provider]["api_key"] = "test-analysis-key"
+    save_preference(owner, key="model_provider", value=model_provider)
     client.force_login(owner)
     response = client.post(
         reverse("mailbox_analyze", args=[email.mailbox_id, email.id]),
@@ -136,6 +143,8 @@ def test_normal_analysis_page_and_duplicate_click_reuse_result(client, owner, em
     assert "回复草稿" in response.content.decode()
     analysis = email.analyses.get()
     assert analysis.run.status == AgentRun.Status.SUCCEEDED
+    assert analysis.provider == model_provider
+    assert analysis.model_name == settings.MODEL_PROVIDERS[model_provider]["model"]
     assert analysis.payload["contains_tasks"] and analysis.payload["requires_reply"]
     assert analysis.payload["tasks"][0]["deadline"]["date"] == "2026-11-05"
     assert analysis.payload["summary"][0]["evidence"][0]["start"] == 0

@@ -11,10 +11,12 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
+from email_agent.intelligence.models import mail_model_extra_body
 from email_agent.intelligence.understanding import PROMPT_VERSION
 from email_agent.models import AgentRun, AnalysisResult, EmailMessage, TaskCandidate, TaskSource
 from email_agent.services.audit import record_event
 from email_agent.services.mailboxes import read_message
+from email_agent.services.model_selection import selected_provider
 from email_agent.services.preferences import effective_preferences
 from email_agent.workflows.locking import RunBusyError, RunFailedError
 
@@ -35,7 +37,7 @@ def analysis_input_key(message_id, snapshot, provider, config):
             "model": config["model"],
             "endpoint": config["base_url"],
             "options": {"temperature": config["temperature"], "extra_body": config["extra_body"]},
-            "analysis_extra_body": settings.MAIL_ANALYSIS_EXTRA_BODY,
+            "analysis_extra_body": mail_model_extra_body(provider),
             "prompt": PROMPT_VERSION,
         }
     )
@@ -73,7 +75,13 @@ def source_snapshot(message, timezone_name, *, preferences=None, processing_opti
 
 
 def analyze_message(
-    message_id, owner, *, timezone_name=None, preferences=None, processing_options=None
+    message_id,
+    owner,
+    *,
+    timezone_name=None,
+    preferences=None,
+    processing_options=None,
+    provider=None,
 ):
     """在事务外调用模型。已有正文可分析缓存，并在结果中保留准确的输入快照。"""
     message = EmailMessage.objects.select_related("mailbox").get(
@@ -89,10 +97,10 @@ def analyze_message(
         raise ValidationError(
             "请使用有效的 IANA 时区，例如 Asia/Shanghai 或 America/New_York。"
         ) from None
-    provider = settings.MAIL_ANALYSIS_PROVIDER
+    provider = provider or selected_provider(owner)
     config = settings.MODEL_PROVIDERS.get(provider)
     if not config:
-        raise ValidationError("MAIL_ANALYSIS_PROVIDER 必须是 bailian、deepseek 或 openai。")
+        raise ValidationError("请选择有效的模型平台。")
     if not message.body_loaded:
         message = read_message(message.mailbox_id, owner, message.id)
     with transaction.atomic():
