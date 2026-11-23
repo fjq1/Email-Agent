@@ -148,6 +148,21 @@ def test_gmail_multipart_prefers_plain_and_keeps_attachment_metadata():
     assert attachments[0]["name"] == "材料.pdf"
 
 
+@pytest.mark.parametrize("body_encoding", ["utf-8", "gb2312"])
+def test_gmail_decodes_body_when_declared_charset_is_gb2312(body_encoding):
+    # Gmail 可能返回已经转换为 UTF-8 的正文，但保留原始的 GB2312 标记。
+    expected = "明天中午一起吃饭吗？"
+    payload = {
+        "mimeType": "text/plain",
+        "headers": [{"name": "Content-Type", "value": "text/plain; charset=gb2312"}],
+        "body": {"data": base64.urlsafe_b64encode(expected.encode(body_encoding)).decode()},
+    }
+
+    text, _, _ = gmail_body(payload)
+
+    assert text == expected
+
+
 def test_gmail_html_is_plain_text_and_bounded(settings):
     settings.MAIL_MAX_BODY_CHARS = 2
     payload = {

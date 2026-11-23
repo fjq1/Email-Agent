@@ -76,6 +76,20 @@ def bounded_text(value):
     return value[:limit], len(value) > limit
 
 
+def _decode_gmail_text(raw, charset):
+    try:
+        return raw.decode(charset)
+    except LookupError:
+        return raw.decode("utf-8", errors="replace")
+    except UnicodeDecodeError:
+        # Gmail 返回的正文可能已转为 UTF-8，而 MIME 头仍保留原始字符集。
+        # 原字符集解码失败时，先尝试严格的 UTF-8，再用替换字符保留可读部分。
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return raw.decode(charset, errors="replace")
+
+
 def gmail_body(payload):
     plain, html, attachments = [], [], []
     # 使用栈遍历 multipart，避免深层嵌套邮件触发 Python 递归上限。
@@ -103,10 +117,7 @@ def gmail_body(payload):
         content_type["content-type"] = headers.get("content-type", "text/plain; charset=utf-8")
         try:
             raw = base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
-            try:
-                text = raw.decode(content_type.get_content_charset() or "utf-8", errors="replace")
-            except LookupError:
-                text = raw.decode("utf-8", errors="replace")
+            text = _decode_gmail_text(raw, content_type.get_content_charset() or "utf-8")
         except (ValueError, binascii.Error):
             continue
         (plain if part["mimeType"] == "text/plain" else html).append(text)
